@@ -19,10 +19,23 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     ext,
     module_loader::{LoaderOptions, RustyLoader},
-    traits::{ToDefinedValue, ToModuleSpecifier, ToV8String},
+    traits::{ToDefinedValue, ToModuleSpecifier},
     transpiler::transpile,
     utilities, Error, ExtensionOptions, Module, ModuleHandle,
 };
+
+fn safe_prepare_stack_trace_callback<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    error: v8::Local<'s, v8::Value>,
+    _callsites: v8::Local<'s, v8::Array>,
+) -> v8::Local<'s, v8::Value> {
+    let message = error.to_string(scope).map_or_else(
+        || "Uncaught Error".to_string(),
+        |s| s.to_rust_string_lossy(scope),
+    );
+
+    v8::String::new(scope, &message).map_or_else(|| v8::undefined(scope).into(), Into::into)
+}
 
 /// Wrapper trait to make the `InnerRuntime` generic over the runtime types
 pub trait RuntimeTrait {
@@ -82,36 +95,47 @@ impl<F> RsAsyncFunction for F where
 {
 }
 
-/// Decodes a set of arguments into a vector of v8 values
-/// This is used to pass arguments to a javascript function
-/// And is faster and more flexible than using `json_args!`
-fn decode_args<'a>(
+/// Decodes a set of arguments into a vector of v8 global values
+/// This is used for testing argument serialization/deserialization
+#[cfg(test)]
+fn decode_args_to_globals(
     args: &impl serde::ser::Serialize,
-    scope: &mut v8::HandleScope<'a>,
-) -> Result<Vec<v8::Local<'a, v8::Value>>, Error> {
-    let args = deno_core::serde_v8::to_v8(scope, args)?;
-    match v8::Local::<v8::Array>::try_from(args) {
-        Ok(args) => {
-            let len = args.length();
-            let mut result = Vec::with_capacity(len as usize);
-            for i in 0..len {
-                let index = v8::Integer::new(
-                    scope,
-                    i.try_into().map_err(|_| {
-                        Error::Runtime(format!(
-                            "Could not decode {len} arguments - use `big_json_args`"
-                        ))
-                    })?,
-                );
-                let arg = args
-                    .get(scope, index.into())
-                    .ok_or_else(|| Error::Runtime(format!("Invalid argument at index {i}")))?;
-                result.push(arg);
+    runtime: &mut JsRuntime,
+) -> Result<Vec<v8::Global<v8::Value>>, Error> {
+    // Serialize to JSON string, then parse in v8
+    let json = deno_core::serde_json::to_string(args)?;
+
+    // Use execute_script to parse the JSON and get the result
+    let script = format!(
+        "JSON.parse('{}')",
+        json.replace('\\', "\\\\").replace('\'', "\\'")
+    );
+    let args = runtime.execute_script("<decode_args>", script)?;
+
+    let context = runtime.main_context();
+    let isolate = runtime.v8_isolate();
+    let pinned = std::pin::pin!(v8::HandleScope::new(isolate));
+    let mut scope = pinned.init();
+    let context_local = v8::Local::new(&scope, context);
+    let context_scope = v8::ContextScope::new(&mut scope, context_local);
+    let args_local = v8::Local::new(&context_scope, &args);
+
+    // Check if it's an array
+    if let Ok(arr) = v8::Local::<v8::Array>::try_from(args_local) {
+        let len = arr.length();
+        let mut result = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let index = v8::Integer::new(&context_scope, i as i32);
+            if let Some(arg) = arr.get(&context_scope, index.into()) {
+                let isolate: &v8::Isolate = &context_scope;
+                result.push(v8::Global::new(isolate, arg));
             }
-            Ok(result)
         }
-        Err(_) if args.is_undefined() || args.is_null() => Ok(vec![]),
-        Err(_) => Ok(vec![args]),
+        Ok(result)
+    } else if args_local.is_undefined() || args_local.is_null() {
+        Ok(vec![])
+    } else {
+        Ok(vec![args])
     }
 }
 
@@ -259,6 +283,11 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
 
             ..Default::default()
         })?;
+
+        deno_runtime
+            .rt_mut()
+            .v8_isolate()
+            .set_prepare_stack_trace_callback(safe_prepare_stack_trace_callback);
 
         let mut feature_checker = FeatureChecker::default();
         feature_checker.set_exit_cb(Box::new(|_, _| {}));
@@ -454,17 +483,21 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
     /// # Returns
     /// A `Result` containing the non-null value extracted or an error (`Error`)
     pub fn get_global_value(&mut self, name: &str) -> Result<v8::Global<v8::Value>, Error> {
-        let context = self.deno_runtime().main_context();
-        let mut scope = self.deno_runtime().handle_scope();
-        let global = context.open(&mut scope).global(&mut scope);
+        // Use execute_script to get the global value - this avoids scope lifetime issues
+        let result = self
+            .deno_runtime()
+            .execute_script("<get_global_value>", name.to_string())?;
 
-        let key = name.to_v8_string(&mut scope)?;
-        let value = global.get(&mut scope, key.into());
-
-        match value.if_defined() {
-            Some(v) => Ok(v8::Global::<v8::Value>::new(&mut scope, v)),
-            _ => Err(Error::ValueNotFound(name.to_string())),
+        // Check if the value is undefined
+        let isolate = self.deno_runtime().v8_isolate();
+        let pinned = std::pin::pin!(v8::HandleScope::new(isolate));
+        let scope = pinned.init();
+        let local = v8::Local::new(&scope, &result);
+        if local.is_undefined() {
+            return Err(Error::ValueNotFound(name.to_string()));
         }
+
+        Ok(result)
     }
 
     /// Attempt to get a value out of a module context
@@ -483,15 +516,29 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
         let module_namespace = self
             .deno_runtime()
             .get_module_namespace(module_context.id())?;
-        let mut scope = self.deno_runtime().handle_scope();
-        let module_namespace = module_namespace.open(&mut scope);
-        assert!(module_namespace.is_module_namespace_object());
 
-        let key = name.to_v8_string(&mut scope)?;
-        let value = module_namespace.get(&mut scope, key.into());
+        let context = self.deno_runtime().main_context();
+        let isolate = self.deno_runtime().v8_isolate();
+
+        // Use std::pin::pin! pattern for proper scope management
+        let pinned = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut scope = pinned.init();
+        let context_local = v8::Local::new(&scope, context);
+        let context_scope = v8::ContextScope::new(&mut scope, context_local);
+
+        let module_namespace_local = v8::Local::new(&context_scope, module_namespace);
+        assert!(module_namespace_local.is_module_namespace_object());
+
+        // Create key string directly using context_scope
+        let key = v8::String::new(&context_scope, name)
+            .ok_or_else(|| Error::V8Encoding(name.to_string()))?;
+        let value = module_namespace_local.get(&context_scope, key.into());
 
         match value.if_defined() {
-            Some(v) => Ok(v8::Global::<v8::Value>::new(&mut scope, v)),
+            Some(v) => {
+                let isolate: &v8::Isolate = &context_scope;
+                Ok(v8::Global::<v8::Value>::new(isolate, v))
+            }
             _ => Err(Error::ValueNotFound(name.to_string())),
         }
     }
@@ -512,9 +559,15 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
     where
         T: DeserializeOwned,
     {
-        let mut scope = self.deno_runtime().handle_scope();
-        let result = v8::Local::<v8::Value>::new(&mut scope, value);
-        Ok(from_v8(&mut scope, result)?)
+        let context = self.deno_runtime().main_context();
+        let isolate = self.deno_runtime().v8_isolate();
+
+        let pinned = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut scope = pinned.init();
+        let context_local = v8::Local::new(&scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut scope, context_local);
+        let result = v8::Local::<v8::Value>::new(&context_scope, value);
+        Ok(from_v8(&mut context_scope, result)?)
     }
 
     pub fn get_value_ref(
@@ -554,14 +607,18 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
         let value = self.get_value_ref(module_context, name)?;
 
         // Convert it into a function
-        let mut scope = self.deno_runtime().handle_scope();
-        let local_value = v8::Local::<v8::Value>::new(&mut scope, value);
+        let isolate = self.deno_runtime().v8_isolate();
+
+        let pinned = std::pin::pin!(v8::HandleScope::new(isolate));
+        let scope = pinned.init();
+        let local_value = v8::Local::<v8::Value>::new(&scope, value);
         let f: v8::Local<v8::Function> = local_value
             .try_into()
             .or::<Error>(Err(Error::ValueNotCallable(name.to_string())))?;
 
         // Return it as a global
-        Ok(v8::Global::<v8::Function>::new(&mut scope, f))
+        let isolate: &v8::Isolate = &scope;
+        Ok(v8::Global::<v8::Function>::new(isolate, f))
     }
 
     pub fn call_function_by_ref(
@@ -570,8 +627,8 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
         function: &v8::Global<v8::Function>,
         args: &impl serde::ser::Serialize,
     ) -> Result<v8::Global<v8::Value>, Error> {
-        // Namespace, if provided
-        let module_namespace = if let Some(module_context) = module_context {
+        // Get the receiver (namespace object or undefined)
+        let receiver = if let Some(module_context) = module_context {
             Some(
                 self.deno_runtime()
                     .get_module_namespace(module_context.id())?,
@@ -580,57 +637,71 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
             None
         };
 
-        let mut scope = self.deno_runtime().handle_scope();
-        let mut scope = v8::TryCatch::new(&mut scope);
+        // Get the main context and create scopes
+        let context = self.deno_runtime().main_context();
+        let isolate = self.deno_runtime().v8_isolate();
 
-        // Get the namespace
-        // Module-level if supplied, none otherwise
-        let namespace: v8::Local<v8::Value> = if let Some(namespace) = module_namespace {
-            v8::Local::<v8::Object>::new(&mut scope, namespace).into()
-        } else {
-            // Create a new object to use as the namespace if none is provided
-            //let obj: v8::Local<v8::Value> = v8::Object::new(&mut scope).into();
-            let obj: v8::Local<v8::Value> = v8::undefined(&mut scope).into();
-            obj
+        let pinned = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut scope = pinned.init();
+        let context_local = v8::Local::new(&scope, &context);
+        let context_scope = v8::ContextScope::new(&mut scope, context_local);
+
+        // Create local handle for the function
+        let function_local = v8::Local::new(&context_scope, function);
+
+        // Create the receiver (undefined or module namespace)
+        let recv: v8::Local<v8::Value> = match &receiver {
+            Some(ns) => v8::Local::new(&context_scope, ns).into(),
+            None => v8::undefined(&context_scope).into(),
         };
 
-        let function_instance = function.open(&mut scope);
+        // Serialize arguments to JSON and parse in JS
+        // Args should serialize to an array (tuples become arrays in serde_json)
+        let json_str = deno_core::serde_json::to_string(args)?;
 
-        // Prep arguments
-        let args = decode_args(args, &mut scope)?;
+        // Handle special case of empty tuple () which serializes to "null"
+        let args_locals: Vec<v8::Local<v8::Value>> = if json_str == "null" || json_str == "[]" {
+            vec![]
+        } else {
+            let escaped = json_str.replace('\\', "\\\\").replace('\'', "\\'");
+            let script_source = format!("JSON.parse('{escaped}')");
+            let source = v8::String::new(&context_scope, &script_source)
+                .ok_or_else(|| Error::V8Encoding("Failed to create script source".to_string()))?;
+            let script = v8::Script::compile(&context_scope, source, None)
+                .ok_or_else(|| Error::Runtime("Failed to compile JSON parse script".to_string()))?;
+            let args_value = script
+                .run(&context_scope)
+                .ok_or_else(|| Error::Runtime("Failed to parse arguments".to_string()))?;
+
+            // Check if it's an array
+            if args_value.is_array() {
+                let args_array: v8::Local<v8::Array> = args_value.try_into().unwrap();
+                let mut locals = Vec::with_capacity(args_array.length() as usize);
+                for i in 0..args_array.length() {
+                    if let Some(arg) = args_array.get_index(&context_scope, i) {
+                        locals.push(arg);
+                    }
+                }
+                locals
+            } else {
+                // Single argument
+                vec![args_value]
+            }
+        };
 
         // Call the function
-        let result = function_instance.call(&mut scope, namespace, &args);
+        let result = function_local.call(&context_scope, recv, &args_locals);
+
+        // Handle the result
         match result {
             Some(value) => {
-                let value = v8::Global::new(&mut scope, value);
-                Ok(value)
+                let isolate: &v8::Isolate = &context_scope;
+                Ok(v8::Global::new(isolate, value))
             }
-            None if scope.has_caught() => {
-                let e = scope
-                    .message()
-                    .ok_or_else(|| Error::Runtime("Unknown error".to_string()))?;
-
-                let filename = e.get_script_resource_name(&mut scope);
-                let linenumber = e.get_line_number(&mut scope).unwrap_or_default();
-                let filename = if let Some(v) = filename {
-                    let filename = v.to_rust_string_lossy(&mut scope);
-                    format!("{filename}:{linenumber}: ")
-                } else if let Some(module_context) = module_context {
-                    let filename = module_context.module().filename().to_string_lossy();
-                    format!("{filename}:{linenumber}: ")
-                } else {
-                    String::new()
-                };
-
-                let msg = e.get(&mut scope).to_rust_string_lossy(&mut scope);
-
-                let s = format!("{filename}{msg}");
-                Err(Error::Runtime(s))
+            None => {
+                // Function call failed (likely an exception was thrown)
+                Err(Error::Runtime("Function call failed".to_string()))
             }
-            None => Err(Error::Runtime(
-                "Unknown error during function execution".to_string(),
-            )),
         }
     }
 
@@ -699,11 +770,15 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
 
         // Try to get an entrypoint from the default export next
         if let Ok(default_export) = self.get_module_export_value(module_context, "default") {
-            let mut scope = self.deno_runtime().handle_scope();
-            let default_export = v8::Local::new(&mut scope, default_export);
+            let isolate = self.deno_runtime().v8_isolate();
+
+            let pinned = std::pin::pin!(v8::HandleScope::new(isolate));
+            let scope = pinned.init();
+            let default_export = v8::Local::new(&scope, default_export);
             if default_export.is_function() {
                 if let Ok(f) = v8::Local::<v8::Function>::try_from(default_export) {
-                    return Ok(Some(v8::Global::new(&mut scope, f)));
+                    let isolate: &v8::Isolate = &scope;
+                    return Ok(Some(v8::Global::new(isolate, f)));
                 }
             }
         }
@@ -740,6 +815,7 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
         // Get additional modules first
         for side_module in side_modules {
             let module_specifier = side_module.filename().to_module_specifier(&self.cwd)?;
+            self.module_loader.whitelist_add(&module_specifier);
             let (code, sourcemap) = transpile(&module_specifier, side_module.contents())?;
 
             // Now CJS translation, for node
@@ -772,6 +848,7 @@ impl<RT: RuntimeTrait> InnerRuntime<RT> {
         // Load main module
         if let Some(module) = main_module {
             let module_specifier = module.filename().to_module_specifier(&self.cwd)?;
+            self.module_loader.whitelist_add(&module_specifier);
             let (code, sourcemap) = transpile(&module_specifier, module.contents())?;
 
             // Now CJS translation, for node
@@ -856,43 +933,47 @@ mod test_inner_runtime {
         let mut runtime =
             InnerRuntime::<JsRuntime>::new(RuntimeOptions::default(), CancellationToken::new())
                 .expect("Could not load runtime");
-        let mut scope = runtime.deno_runtime.handle_scope();
 
         // empty
-        let args = decode_args(&json_args!(), &mut scope).expect("Could not decode args");
+        let args = decode_args_to_globals(&json_args!(), &mut runtime.deno_runtime)
+            .expect("Could not decode args");
         assert_eq!(args.len(), 0);
 
         // single
-        let args = decode_args(&json_args!(2), &mut scope).expect("Could not decode args");
+        let args = decode_args_to_globals(&json_args!(2), &mut runtime.deno_runtime)
+            .expect("Could not decode args");
         assert_eq!(args.len(), 1);
 
         // single raw
-        let args = decode_args(&2, &mut scope).expect("Could not decode args");
+        let args =
+            decode_args_to_globals(&2, &mut runtime.deno_runtime).expect("Could not decode args");
         assert_eq!(args.len(), 1);
 
         // multiple heterogeneous
-        let args = decode_args(&json_args!(2, "test"), &mut scope).expect("Could not decode args");
+        let args = decode_args_to_globals(&json_args!(2, "test"), &mut runtime.deno_runtime)
+            .expect("Could not decode args");
         assert_eq!(args.len(), 2);
 
         // multiple homogeneous
-        let args = decode_args(&json_args!(2, 3), &mut scope).expect("Could not decode args");
+        let args = decode_args_to_globals(&json_args!(2, 3), &mut runtime.deno_runtime)
+            .expect("Could not decode args");
         assert_eq!(args.len(), 2);
 
         // 16 args
-        let args = decode_args(
+        let args = decode_args_to_globals(
             &(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15),
-            &mut scope,
+            &mut runtime.deno_runtime,
         )
         .expect("Could not decode args");
         assert_eq!(args.len(), 16);
 
         // 32 args
-        let args = decode_args(
+        let args = decode_args_to_globals(
             &big_json_args!(
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
                 10, 11, 12, 13, 14, 15
             ),
-            &mut scope,
+            &mut runtime.deno_runtime,
         )
         .expect("Could not decode args");
         assert_eq!(args.len(), 32);
@@ -1317,9 +1398,8 @@ mod test_inner_runtime {
             .decode_value(structure)
             .expect("Could not deserialize");
 
-        let function = structure
-            .func
-            .as_global(&mut runtime.deno_runtime().handle_scope());
+        let isolate = runtime.deno_runtime().v8_isolate();
+        let function = structure.func.as_global(isolate);
 
         run_async_task(|| async move {
             let value = runtime

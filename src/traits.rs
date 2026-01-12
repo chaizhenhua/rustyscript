@@ -1,9 +1,6 @@
 use std::{borrow::Cow, path::Path};
 
-use deno_core::{
-    v8::{self, HandleScope},
-    ModuleSpecifier,
-};
+use deno_core::{v8, ModuleSpecifier};
 
 use crate::Error;
 
@@ -32,22 +29,6 @@ pub trait ToModuleSpecifier {
 impl<T: AsRef<Path>> ToModuleSpecifier for T {
     fn to_module_specifier(&self, base: &Path) -> Result<ModuleSpecifier, Error> {
         Ok(resolve_path(self, base)?)
-    }
-}
-
-pub trait ToV8String {
-    fn to_v8_string<'a>(
-        &self,
-        scope: &mut HandleScope<'a>,
-    ) -> Result<v8::Local<'a, v8::String>, Error>;
-}
-
-impl ToV8String for str {
-    fn to_v8_string<'a>(
-        &self,
-        scope: &mut HandleScope<'a>,
-    ) -> Result<v8::Local<'a, v8::String>, Error> {
-        v8::String::new(scope, self).ok_or(Error::V8Encoding(self.to_string()))
     }
 }
 

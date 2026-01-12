@@ -202,14 +202,18 @@ pub(crate) fn all_extensions(
     #[cfg(feature = "webidl")]
     extensions.extend(webidl::extensions(is_snapshot));
 
-    #[cfg(feature = "console")]
-    extensions.extend(console::extensions(is_snapshot));
+    // web or web_stub must come before url and console since they depend on deno_web
+    #[cfg(feature = "web")]
+    extensions.extend(web::extensions(options.web.clone(), is_snapshot));
+
+    #[cfg(all(not(feature = "web"), feature = "web_stub"))]
+    extensions.extend(web_stub::extensions(is_snapshot));
 
     #[cfg(feature = "url")]
     extensions.extend(url::extensions(is_snapshot));
 
-    #[cfg(feature = "web")]
-    extensions.extend(web::extensions(options.web.clone(), is_snapshot));
+    #[cfg(feature = "console")]
+    extensions.extend(console::extensions(is_snapshot));
 
     #[cfg(feature = "broadcast_channel")]
     extensions.extend(broadcast_channel::extensions(
@@ -219,9 +223,6 @@ pub(crate) fn all_extensions(
 
     #[cfg(feature = "cache")]
     extensions.extend(cache::extensions(options.cache.clone(), is_snapshot));
-
-    #[cfg(all(not(feature = "web"), feature = "web_stub"))]
-    extensions.extend(web_stub::extensions(is_snapshot));
 
     #[cfg(feature = "crypto")]
     extensions.extend(crypto::extensions(options.crypto_seed, is_snapshot));
@@ -236,7 +237,7 @@ pub(crate) fn all_extensions(
     ));
 
     #[cfg(feature = "websocket")]
-    extensions.extend(websocket::extensions(options.web.clone(), is_snapshot));
+    extensions.extend(websocket::extensions(is_snapshot));
 
     #[cfg(feature = "fs")]
     extensions.extend(fs::extensions(options.filesystem.clone(), is_snapshot));

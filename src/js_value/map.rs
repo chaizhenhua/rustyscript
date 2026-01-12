@@ -1,4 +1,4 @@
-use deno_core::v8::{self, GetPropertyNamesArgs, HandleScope};
+use deno_core::v8::{self, GetPropertyNamesArgs};
 use serde::Deserialize;
 
 use super::V8Value;
@@ -21,8 +21,14 @@ impl Map {
     /// Gets a value from the map
     /// Warning: If a key is not valid UTF-8, the value may be inaccessible
     pub fn get(&self, key: &str, runtime: &mut crate::Runtime) -> Option<crate::js_value::Value> {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        self.get_property_by_name(&mut scope, key)
+        let deno_runtime = runtime.deno_runtime();
+        let context = deno_runtime.main_context();
+        let isolate = deno_runtime.v8_isolate();
+        let handle_scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut handle_scope = handle_scope.init();
+        let context_local = v8::Local::new(&handle_scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut handle_scope, context_local);
+        self.get_property_by_name_impl(&mut context_scope, key)
     }
 
     /// Converts the map to a hashmap
@@ -31,33 +37,51 @@ impl Map {
         &self,
         runtime: &mut crate::Runtime,
     ) -> std::collections::HashMap<String, crate::js_value::Value> {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        self.to_rust_hashmap(&mut scope)
+        let deno_runtime = runtime.deno_runtime();
+        let context = deno_runtime.main_context();
+        let isolate = deno_runtime.v8_isolate();
+        let handle_scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut handle_scope = handle_scope.init();
+        let context_local = v8::Local::new(&handle_scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut handle_scope, context_local);
+        self.to_rust_hashmap_impl(&mut context_scope)
     }
 
     /// Returns the keys of the map
     /// Warning: If a key is not valid UTF-8, the value may be inaccessible
     pub fn keys(&self, runtime: &mut crate::Runtime) -> Vec<String> {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        self.get_string_keys(&mut scope)
+        let deno_runtime = runtime.deno_runtime();
+        let context = deno_runtime.main_context();
+        let isolate = deno_runtime.v8_isolate();
+        let handle_scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut handle_scope = handle_scope.init();
+        let context_local = v8::Local::new(&handle_scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut handle_scope, context_local);
+        self.get_string_keys_impl(&mut context_scope)
     }
 
     /// Returns the number of keys in the map
     /// Skips any keys that are not valid UTF-8
     pub fn len(&self, runtime: &mut crate::Runtime) -> usize {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        self.get_string_keys(&mut scope).len()
+        let deno_runtime = runtime.deno_runtime();
+        let context = deno_runtime.main_context();
+        let isolate = deno_runtime.v8_isolate();
+        let handle_scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut handle_scope = handle_scope.init();
+        let context_local = v8::Local::new(&handle_scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut handle_scope, context_local);
+        self.get_string_keys_impl(&mut context_scope).len()
     }
 
-    pub(crate) fn to_rust_hashmap(
+    fn to_rust_hashmap_impl(
         &self,
-        scope: &mut HandleScope,
+        scope: &mut v8::ContextScope<v8::HandleScope>,
     ) -> std::collections::HashMap<String, crate::js_value::Value> {
-        let keys = self.get_string_keys(scope);
+        let keys = self.get_string_keys_impl(scope);
         let mut map = std::collections::HashMap::new();
 
         for name in keys {
-            match self.get_property_by_name(scope, &name) {
+            match self.get_property_by_name_impl(scope, &name) {
                 Some(value) => map.insert(name, value),
                 None => None,
             };
@@ -66,20 +90,21 @@ impl Map {
         map
     }
 
-    pub(crate) fn get_property_by_name(
+    fn get_property_by_name_impl(
         &self,
-        scope: &mut HandleScope,
+        scope: &mut v8::ContextScope<v8::HandleScope>,
         name: &str,
     ) -> Option<crate::js_value::Value> {
         let local = self.0.as_local(scope);
         let key = v8::String::new(scope, name).unwrap();
         let value = local.get(scope, key.into())?;
 
-        let value = v8::Global::new(scope, value);
+        let isolate: &v8::Isolate = scope;
+        let value = v8::Global::new(isolate, value);
         Some(crate::js_value::Value::from_v8(value))
     }
 
-    pub(crate) fn get_string_keys(&self, scope: &mut HandleScope) -> Vec<String> {
+    fn get_string_keys_impl(&self, scope: &mut v8::ContextScope<v8::HandleScope>) -> Vec<String> {
         let local = self.0.as_local(scope);
         let mut keys = vec![];
 

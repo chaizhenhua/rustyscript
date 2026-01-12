@@ -19,7 +19,7 @@ import {
 	getStderrNoColor,
 	inspectArgs,
 	quoteString,
-} from "ext:deno_console/01_console.js";
+} from "ext:deno_web/01_console.js";
 
 class NotFound extends Error {
 	constructor(msg) {

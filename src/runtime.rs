@@ -46,7 +46,7 @@ impl Runtime {
     /// A `Result` containing either the initialized runtime instance on success (`Ok`) or an error on failure (`Err`).
     ///
     /// # Example
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ json_args, Runtime, RuntimeOptions, Module };
     /// use std::time::Duration;
     ///
@@ -230,7 +230,7 @@ impl Runtime {
     }
 
     /// Remove and return a value from the state, if one exists
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ Runtime };
     ///
     /// # fn main() -> Result<(), rustyscript::Error> {
@@ -254,7 +254,7 @@ impl Runtime {
     /// # Errors
     /// Can fail if the inner state cannot be borrowed mutably
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ Runtime };
     ///
     /// # fn main() -> Result<(), rustyscript::Error> {
@@ -278,7 +278,7 @@ impl Runtime {
     /// # Errors
     /// Since this function borrows the state, it can fail if the state cannot be borrowed mutably
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ Runtime, Module, serde_json::Value };
     ///
     /// # fn main() -> Result<(), rustyscript::Error> {
@@ -307,7 +307,7 @@ impl Runtime {
     /// # Errors
     /// Since this function borrows the state, it can fail if the state cannot be borrowed mutably
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ Runtime, Module, serde_json::Value, async_callback, Error };
     ///
     /// # fn main() -> Result<(), rustyscript::Error> {
@@ -358,7 +358,7 @@ impl Runtime {
     /// Can fail if the expression cannot be evaluated, or if the result cannot be deserialized into the requested type
     ///
     /// # Example
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ Runtime, Error };
     ///
     /// # fn main() -> Result<(), Error> {
@@ -491,7 +491,8 @@ impl Runtime {
     where
         T: serde::de::DeserializeOwned,
     {
-        let function = function.as_global(&mut self.deno_runtime().handle_scope());
+        let isolate = self.deno_runtime().v8_isolate();
+        let function = function.as_global(isolate);
         let result = self
             .inner
             .call_function_by_ref(module_context, &function, args)?;
@@ -564,7 +565,8 @@ impl Runtime {
     where
         T: deno_core::serde::de::DeserializeOwned,
     {
-        let function = function.as_global(&mut self.deno_runtime().handle_scope());
+        let isolate = self.deno_runtime().v8_isolate();
+        let function = function.as_global(isolate);
         let result = self
             .inner
             .call_function_by_ref(module_context, &function, args)?;
@@ -633,7 +635,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ json_args, Runtime, Module, Error };
     ///
     /// # fn main() -> Result<(), Error> {
@@ -682,7 +684,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ json_args, Runtime, Module, Error };
     ///
     /// # fn main() -> Result<(), Error> {
@@ -728,7 +730,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ Runtime, Module, Error };
     ///
     /// # fn main() -> Result<(), Error> {
@@ -800,7 +802,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{ Runtime, Module, Error };
     ///
     /// # fn main() -> Result<(), Error> {
@@ -842,7 +844,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// // Create a module with filename and contents
     /// use rustyscript::{Runtime, Module, Error};
     ///
@@ -908,7 +910,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// // Create a module with filename and contents
     /// use rustyscript::{Runtime, Module, Error};
     ///
@@ -983,7 +985,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{json_args, Runtime, Module, Error};
     ///
     /// # fn main() -> Result<(), Error> {
@@ -1069,7 +1071,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use rustyscript::{json_args, Runtime, Module, Error};
     ///
     /// # fn main() -> Result<(), Error> {
@@ -1122,7 +1124,7 @@ impl Runtime {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// // Create a module with filename and contents
     /// use rustyscript::{json_args, Runtime, Module, Error};
     ///

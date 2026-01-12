@@ -16,6 +16,7 @@ import * as messagePort from 'ext:deno_web/13_message_port.js';
 import * as compression from 'ext:deno_web/14_compression.js';
 import * as performance from 'ext:deno_web/15_performance.js';
 import * as imageData from 'ext:deno_web/16_image_data.js';
+import * as broadcastChannel from 'ext:deno_web/01_broadcast_channel.js';
 
 import * as errors from 'ext:init_web/init_errors.js';
 

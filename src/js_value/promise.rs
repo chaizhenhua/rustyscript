@@ -33,9 +33,14 @@ where
         let result = runtime
             .with_event_loop_future(future, PollEventLoopOptions::default())
             .await?;
-        let mut scope = runtime.handle_scope();
-        let local = v8::Local::new(&mut scope, &result);
-        Ok(deno_core::serde_v8::from_v8(&mut scope, local)?)
+        let context = runtime.main_context();
+        let isolate = runtime.v8_isolate();
+        let scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut scope = scope.init();
+        let context_local = v8::Local::new(&scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut scope, context_local);
+        let local = v8::Local::new(&context_scope, &result);
+        Ok(deno_core::serde_v8::from_v8(&mut context_scope, local)?)
     }
 
     /// Returns a future that resolves the promise
@@ -58,8 +63,13 @@ where
 
     /// Checks if the promise is pending or already resolved
     pub fn is_pending(&self, runtime: &mut crate::Runtime) -> bool {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        let value = self.0.as_local(&mut scope);
+        let context = runtime.deno_runtime().main_context();
+        let isolate = runtime.deno_runtime().v8_isolate();
+        let scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut scope = scope.init();
+        let context_local = v8::Local::new(&scope, context);
+        let context_scope = v8::ContextScope::new(&mut scope, context_local);
+        let value = self.0.as_local(&context_scope);
         value.state() == v8::PromiseState::Pending
     }
 
@@ -67,19 +77,24 @@ where
     /// or `Poll::Ready(Ok(T))` if the promise is resolved
     /// or `Poll::Ready(Err(Error))` if the promise is rejected
     pub fn poll_promise(&self, runtime: &mut crate::Runtime) -> std::task::Poll<Result<T, Error>> {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        let value = self.0.as_local(&mut scope);
+        let context = runtime.deno_runtime().main_context();
+        let isolate = runtime.deno_runtime().v8_isolate();
+        let scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut scope = scope.init();
+        let context_local = v8::Local::new(&scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut scope, context_local);
+        let value = self.0.as_local(&context_scope);
 
         match value.state() {
             PromiseState::Pending => std::task::Poll::Pending,
             PromiseState::Rejected => {
-                let error = value.result(&mut scope);
-                let error = deno_core::error::JsError::from_v8_exception(&mut scope, error);
+                let error = value.result(&context_scope);
+                let error = deno_core::error::JsError::from_v8_exception(&mut context_scope, error);
                 std::task::Poll::Ready(Err(error.into()))
             }
             PromiseState::Fulfilled => {
-                let result = value.result(&mut scope);
-                match deno_core::serde_v8::from_v8::<T>(&mut scope, result) {
+                let result = value.result(&context_scope);
+                match deno_core::serde_v8::from_v8::<T>(&mut context_scope, result) {
                     Ok(value) => std::task::Poll::Ready(Ok(value)),
                     Err(e) => std::task::Poll::Ready(Err(e.into())),
                 }
