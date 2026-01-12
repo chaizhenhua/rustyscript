@@ -113,7 +113,14 @@ extension!(
     options = {
         permissions: Arc<dyn WebPermissions>
     },
-    state = |state, config| state.put(PermissionsContainer(config.permissions)),
+    state = |state, config| {
+        state.put(PermissionsContainer(config.permissions));
+        if !state.has::<deno_permissions::PermissionsContainer>() {
+            let parser = Arc::new(deno_permissions::RuntimePermissionDescriptorParser::new(sys_traits::impls::RealSys));
+            let permissions = deno_permissions::PermissionsContainer::allow_all(parser);
+            state.put(permissions);
+        }
+    },
 );
 impl ExtensionTrait<WebOptions> for init_web {
     fn init(options: WebOptions) -> Extension {
