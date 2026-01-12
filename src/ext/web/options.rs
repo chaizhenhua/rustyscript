@@ -42,6 +42,9 @@ pub struct WebOptions {
     /// Blob store for the web related extensions
     pub blob_store: Arc<deno_web::BlobStore>,
 
+    /// Broadcast channel for cross-context messaging
+    pub broadcast_channel: deno_web::InMemoryBroadcastChannel,
+
     ///A callback to customize HTTP client configuration.
     ///
     /// For more info on what can be configured, see [`hyper_util::client::legacy::Builder`]
@@ -67,6 +70,7 @@ impl Default for WebOptions {
             file_fetch_handler: std::rc::Rc::new(deno_fetch::DefaultFileFetchHandler),
             permissions: Arc::new(DefaultWebPermissions),
             blob_store: Arc::new(deno_web::BlobStore::default()),
+            broadcast_channel: deno_web::InMemoryBroadcastChannel::default(),
             client_builder_hook: None,
             resolver: Resolver::default(),
             telemetry_config: deno_telemetry::OtelConfig::default(),

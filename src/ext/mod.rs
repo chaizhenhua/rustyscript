@@ -139,7 +139,7 @@ pub struct ExtensionOptions {
     /// Requires the `broadcast_channel` feature to be enabled
     #[cfg(feature = "broadcast_channel")]
     #[cfg_attr(docsrs, doc(cfg(feature = "broadcast_channel")))]
-    pub broadcast_channel: deno_broadcast_channel::InMemoryBroadcastChannel,
+    pub broadcast_channel: deno_web::InMemoryBroadcastChannel,
 
     /// Key-value store for the `deno_kv` extension
     ///
@@ -180,7 +180,7 @@ impl Default for ExtensionOptions {
             filesystem: std::sync::Arc::new(deno_fs::RealFs),
 
             #[cfg(feature = "broadcast_channel")]
-            broadcast_channel: deno_broadcast_channel::InMemoryBroadcastChannel::default(),
+            broadcast_channel: deno_web::InMemoryBroadcastChannel::default(),
 
             #[cfg(feature = "kv")]
             kv_store: kv::KvStore::default(),

@@ -43,7 +43,6 @@ impl ImportProvider for MemoryCache {
         specifier: &ModuleSpecifier,
         _referrer: Option<&ModuleSpecifier>,
         _is_dyn_import: bool,
-        _requested_module_type: deno_core::RequestedModuleType,
     ) -> Option<Result<String, ModuleLoaderError>> {
         // Return the source code if the module is in the cache
         self.get(specifier).map(Ok)

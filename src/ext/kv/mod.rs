@@ -1,14 +1,9 @@
-use std::{borrow::Cow, path::PathBuf};
+use std::path::PathBuf;
 
 use deno_core::{extension, Extension};
-use deno_kv::{
-    dynamic::MultiBackendDbHandler,
-    remote::{RemoteDbHandler, RemoteDbHandlerPermissions},
-    sqlite::{SqliteDbHandler, SqliteDbHandlerPermissions},
-};
-use deno_permissions::{CheckedPath, PermissionCheckError, PermissionDeniedError};
+use deno_kv::{dynamic::MultiBackendDbHandler, remote::RemoteDbHandler, sqlite::SqliteDbHandler};
 
-use super::{web::PermissionsContainer, ExtensionTrait};
+use super::ExtensionTrait;
 
 extension!(
     init_kv,
@@ -149,12 +144,12 @@ impl KvStore {
     pub fn handler(&self) -> MultiBackendDbHandler {
         match &self.0 {
             KvStoreBuilder::Local { path, rng_seed } => {
-                let db = SqliteDbHandler::<PermissionsContainer>::new(path.clone(), *rng_seed);
+                let db = SqliteDbHandler::new(path.clone(), *rng_seed);
                 MultiBackendDbHandler::new(vec![(&[""], Box::new(db))])
             }
 
             KvStoreBuilder::Remote { http_options } => {
-                let db = RemoteDbHandler::<PermissionsContainer>::new(http_options.clone());
+                let db = RemoteDbHandler::new(http_options.clone());
                 MultiBackendDbHandler::new(vec![(&["https://", "http://"], Box::new(db))])
             }
         }
@@ -173,42 +168,5 @@ impl KvStore {
 impl Default for KvStore {
     fn default() -> Self {
         Self::new_local(None, None, KvConfig::default())
-    }
-}
-
-impl SqliteDbHandlerPermissions for PermissionsContainer {
-    fn check_open<'a>(
-        &mut self,
-        path: Cow<'a, std::path::Path>,
-        open_access: deno_permissions::OpenAccessKind,
-        api_name: &str,
-    ) -> Result<CheckedPath<'a>, deno_permissions::PermissionCheckError> {
-        let read = open_access.is_read();
-        let write = open_access.is_write();
-
-        let p = self.0.check_open(true, read, write, path, api_name).ok_or(
-            PermissionCheckError::PermissionDenied(PermissionDeniedError {
-                access: api_name.to_string(),
-                name: "open",
-            }),
-        )?;
-
-        Ok(CheckedPath::unsafe_new(p))
-    }
-}
-
-impl RemoteDbHandlerPermissions for PermissionsContainer {
-    fn check_env(&mut self, var: &str) -> Result<(), deno_permissions::PermissionCheckError> {
-        self.0.check_env(var)?;
-        Ok(())
-    }
-
-    fn check_net_url(
-        &mut self,
-        url: &reqwest::Url,
-        api_name: &str,
-    ) -> Result<(), deno_permissions::PermissionCheckError> {
-        self.0.check_url(url, api_name)?;
-        Ok(())
     }
 }

@@ -5,7 +5,7 @@ use crate::{module_loader::ImportProvider, Error, RuntimeOptions};
 /// Just a helper wrapper around `RuntimeOptions` for `Runtime` and `SnapshotBuilder`
 ///
 /// # Example
-/// ```rust
+/// ```no_run
 /// use rustyscript::RuntimeBuilder;
 ///
 /// let runtime = RuntimeBuilder::new()
@@ -162,10 +162,7 @@ impl RuntimeBuilder {
     #[cfg(feature = "broadcast_channel")]
     #[cfg_attr(docsrs, doc(cfg(feature = "broadcast_channel")))]
     #[must_use]
-    pub fn with_broadcast_channel(
-        mut self,
-        channel: deno_broadcast_channel::InMemoryBroadcastChannel,
-    ) -> Self {
+    pub fn with_broadcast_channel(mut self, channel: deno_web::InMemoryBroadcastChannel) -> Self {
         self.0.extension_options.broadcast_channel = channel;
         self
     }

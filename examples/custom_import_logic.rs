@@ -78,7 +78,6 @@ impl ImportProvider for MyImportProvider {
         specifier: &ModuleSpecifier,
         _referrer: Option<&ModuleSpecifier>,
         _is_dyn_import: bool,
-        _requested_module_type: deno_core::RequestedModuleType,
     ) -> Option<Result<String, ModuleLoaderError>> {
         match specifier.scheme() {
             //
