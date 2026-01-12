@@ -255,7 +255,8 @@ impl Drop for BroadcastChannelWrapper {
 
 #[cfg(test)]
 mod test {
-    use crate::{BroadcastChannel, Runtime, RuntimeOptions};
+    use super::BroadcastChannel;
+    use crate::{Runtime, RuntimeOptions};
 
     #[test]
     fn test_broadcast_channel_send_recv() {
@@ -276,17 +277,16 @@ mod test {
         let tokio_rt = runtime.tokio_runtime();
         tokio_rt.block_on(async {
             // Send from wrapper1
-            wrapper1
-                .send(&mut runtime, "hello from rust")
-                .await
-                .unwrap();
+            let send_result: Result<(), crate::Error> = wrapper1
+                .send::<&str>(&mut runtime, "hello from rust")
+                .await;
+            send_result.unwrap();
 
             // Receive from wrapper2
-            let received: String = wrapper2
-                .recv(&mut runtime, Some(std::time::Duration::from_secs(1)))
-                .await
-                .unwrap()
-                .unwrap();
+            let recv_result: Result<Option<String>, crate::Error> = wrapper2
+                .recv::<String>(&mut runtime, Some(std::time::Duration::from_secs(1)))
+                .await;
+            let received: String = recv_result.unwrap().unwrap();
 
             assert_eq!(received, "hello from rust");
         });
@@ -318,13 +318,16 @@ mod test {
         let tokio_rt = runtime.tokio_runtime();
         tokio_rt.block_on(async {
             // Send to channel_a
-            wrapper_a.send(&mut runtime, "message for a").await.unwrap();
+            let send_result: Result<(), crate::Error> = wrapper_a
+                .send::<&str>(&mut runtime, "message for a")
+                .await;
+            send_result.unwrap();
 
             // wrapper_b should not receive this message (different channel name)
-            let result: Option<String> = wrapper_b
-                .recv(&mut runtime, Some(std::time::Duration::from_millis(100)))
-                .await
-                .unwrap();
+            let recv_result: Result<Option<String>, crate::Error> = wrapper_b
+                .recv::<String>(&mut runtime, Some(std::time::Duration::from_millis(100)))
+                .await;
+            let result: Option<String> = recv_result.unwrap();
 
             assert!(result.is_none());
         });
