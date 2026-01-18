@@ -84,8 +84,10 @@ fn test_error_handling(runtime: &mut Runtime, code: &str, module_name: &str) {
             std::process::exit(1);
         }
         Err(e) => {
-            println!("✓ Correctly returned error: {}",
-                e.to_string().lines().next().unwrap_or("Unknown error"));
+            println!(
+                "✓ Correctly returned error: {}",
+                e.to_string().lines().next().unwrap_or("Unknown error")
+            );
         }
     }
 }
