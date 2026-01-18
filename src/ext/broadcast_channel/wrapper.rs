@@ -277,9 +277,8 @@ mod test {
         let tokio_rt = runtime.tokio_runtime();
         tokio_rt.block_on(async {
             // Send from wrapper1
-            let send_result: Result<(), crate::Error> = wrapper1
-                .send::<&str>(&mut runtime, "hello from rust")
-                .await;
+            let send_result: Result<(), crate::Error> =
+                wrapper1.send::<&str>(&mut runtime, "hello from rust").await;
             send_result.unwrap();
 
             // Receive from wrapper2
@@ -318,9 +317,8 @@ mod test {
         let tokio_rt = runtime.tokio_runtime();
         tokio_rt.block_on(async {
             // Send to channel_a
-            let send_result: Result<(), crate::Error> = wrapper_a
-                .send::<&str>(&mut runtime, "message for a")
-                .await;
+            let send_result: Result<(), crate::Error> =
+                wrapper_a.send::<&str>(&mut runtime, "message for a").await;
             send_result.unwrap();
 
             // wrapper_b should not receive this message (different channel name)

@@ -104,7 +104,10 @@ fn main() -> Result<(), rustyscript::Error> {
     // Add a redirect for a simple utility module
     import_provider.add_redirect("colors", "https://deno.land/std@0.224.0/fmt/colors.ts")?;
     // Add a static module with some test data
-    import_provider.add_static_module("my-module", "export const foo = 1; export const bar = 'test';");
+    import_provider.add_static_module(
+        "my-module",
+        "export const foo = 1; export const bar = 'test';",
+    );
 
     let mut runtime = Runtime::new(RuntimeOptions {
         import_provider: Some(Box::new(import_provider)),
