@@ -1,20 +1,42 @@
 //! Wrapper for broadcast channel functionality
 //!
-//! This implementation provides a stable Rust API for broadcast channels,
-//! independent of upstream deno_web API changes.
+//! This module provides two types of broadcast channel wrappers:
 //!
-//! # Important Note
+//! ## `BroadcastChannelWrapper` - Rust-to-Rust Communication
 //!
-//! Due to upstream changes in `deno_web` (the broadcast channel methods are now private),
-//! this wrapper is designed for **Rust-to-Rust communication only**. It does not share
-//! the same underlying channel as the JavaScript `BroadcastChannel` API.
+//! This wrapper creates an isolated channel for Rust-to-Rust communication only.
+//! It does NOT share the underlying channel with JavaScript's `BroadcastChannel` API.
 //!
-//! For JavaScript-to-JavaScript communication, use the built-in `BroadcastChannel` API directly:
+//! Use this when you need multiple Rust components to communicate via broadcast channels
+//! without involving JavaScript.
 //!
-//! ```javascript
-//! const channel = new BroadcastChannel("my-channel");
-//! channel.postMessage({ data: "hello" });
-//! channel.onmessage = (event) => console.log(event.data);
+//! ## `SharedBroadcastChannelWrapper` - JavaScript ↔ Rust Communication
+//!
+//! This wrapper shares the same underlying channel as JavaScript's `BroadcastChannel` API,
+//! enabling bidirectional communication between Rust and JavaScript.
+//!
+//! Use this when you need to:
+//! - Send messages from Rust to JavaScript BroadcastChannel listeners
+//! - Receive messages from JavaScript BroadcastChannel in Rust
+//! - Integrate with existing JavaScript code using BroadcastChannel
+//!
+//! ## Example Comparison
+//!
+//! ### Rust-to-Rust (BroadcastChannelWrapper)
+//! ```rust,ignore
+//! let channel = BroadcastChannel::new();
+//! let sub1 = channel.subscribe("my_channel")?;
+//! let sub2 = channel.subscribe("my_channel")?;
+//! sub1.send(&mut runtime, "hello").await?; // sub2 receives
+//! // JavaScript BroadcastChannel('my_channel') does NOT receive this
+//! ```
+//!
+//! ### Rust ↔ JavaScript (SharedBroadcastChannelWrapper)
+//! ```rust,ignore
+//! let channel = options.extension_options.web.broadcast_channel.clone();
+//! let wrapper = SharedBroadcastChannelWrapper::new(&channel, "my_channel")?;
+//! wrapper.send(&mut runtime, "hello").await?;
+//! // JavaScript BroadcastChannel('my_channel') DOES receive this
 //! ```
 //!
 //! # Usage

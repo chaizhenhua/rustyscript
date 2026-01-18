@@ -428,7 +428,9 @@ pub use traits::ToV8String;
 
 #[cfg(feature = "broadcast_channel")]
 #[cfg_attr(docsrs, doc(cfg(feature = "broadcast_channel")))]
-pub use ext::broadcast_channel::{BroadcastChannel, BroadcastChannelWrapper};
+pub use ext::broadcast_channel::{
+    BroadcastChannel, BroadcastChannelWrapper, SharedBroadcastChannelWrapper,
+};
 
 #[cfg(feature = "web")]
 #[cfg_attr(docsrs, doc(cfg(feature = "web")))]
