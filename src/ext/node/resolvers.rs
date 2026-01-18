@@ -11,8 +11,8 @@ use deno_core::FastString;
 use deno_error::JsErrorBox;
 use deno_fs::{FileSystem, RealFs};
 use deno_node::{NodeExtInitServices, NodeRequireLoader, NodeResolver};
-use deno_package_json::{PackageJsonCache, PackageJsonRc};
-use deno_permissions::{CheckedPath, OpenAccessKind};
+use deno_package_json::{PackageJsonCache, PackageJsonCacheResult, PackageJsonRc};
+use deno_permissions::{CheckedPath, OpenAccessKind, PermissionsContainer};
 use deno_process::NpmProcessStateProvider;
 use deno_resolver::npm::{
     ByonmInNpmPackageChecker, ByonmNpmResolver, ByonmNpmResolverCreateOptions,
@@ -23,7 +23,7 @@ use node_resolver::{
     analyze::{CjsModuleExportAnalyzer, NodeCodeTranslatorMode},
     cache::NodeResolutionSys,
     errors::{
-        ClosestPkgJsonError, PackageFolderResolveError, PackageFolderResolveErrorKind,
+        PackageFolderResolveError, PackageFolderResolveErrorKind, PackageJsonLoadError,
         PackageNotFoundError,
     },
     DenoIsBuiltInNodeModuleChecker, InNpmPackageChecker, NodeConditionOptions, NodeResolutionCache,
@@ -163,7 +163,7 @@ impl RustyResolver {
     fn check_based_on_pkg_json(
         &self,
         specifier: &ModuleSpecifier,
-    ) -> Result<bool, ClosestPkgJsonError> {
+    ) -> Result<bool, PackageJsonLoadError> {
         let pjson = self.folder_resolver.pjson_resolver();
 
         // Try to get a path from the URL
@@ -203,6 +203,8 @@ impl RustyResolver {
         match media_type {
             MediaType::Wasm
             | MediaType::Json
+            | MediaType::Jsonc
+            | MediaType::Json5
             | MediaType::Mts
             | MediaType::Mjs
             | MediaType::Html
@@ -380,6 +382,17 @@ impl NpmPackageFolderResolver for RustyNpmPackageFolderResolver {
                 .resolve_package_folder_from_package(specifier, referrer),
         }
     }
+
+    fn resolve_types_package_folder(
+        &self,
+        _package_name: &str,
+        _version: Option<&deno_semver::Version>,
+        _referrer: Option<&UrlOrPathRef>,
+    ) -> Option<PathBuf> {
+        // For BYONM (Bring Your Own Node Modules), types are resolved from node_modules
+        // This is not applicable in the current implementation
+        None
+    }
 }
 
 ///
@@ -392,11 +405,20 @@ impl RustyPackageJsonCache {
     }
 }
 impl PackageJsonCache for RustyPackageJsonCache {
-    fn get(&self, path: &Path) -> Option<PackageJsonRc> {
-        self.0.read().ok().and_then(|i| i.get(path))
+    fn get(&self, path: &Path) -> PackageJsonCacheResult {
+        match self.0.read().ok() {
+            Some(cache) => {
+                if cache.cache.contains_key(path) {
+                    PackageJsonCacheResult::Hit(cache.cache.get(path).cloned().flatten())
+                } else {
+                    PackageJsonCacheResult::NotCached
+                }
+            }
+            None => PackageJsonCacheResult::NotCached,
+        }
     }
 
-    fn set(&self, path: PathBuf, package_json: PackageJsonRc) {
+    fn set(&self, path: PathBuf, package_json: Option<PackageJsonRc>) {
         if let Ok(mut i) = self.0.write() {
             i.set(path, package_json);
         }
@@ -404,13 +426,14 @@ impl PackageJsonCache for RustyPackageJsonCache {
 }
 #[derive(Debug, Default, Clone)]
 pub struct RustyPackageJsonCacheInner {
-    cache: HashMap<PathBuf, PackageJsonRc>,
+    cache: HashMap<PathBuf, Option<PackageJsonRc>>,
 }
 impl RustyPackageJsonCacheInner {
+    #[allow(dead_code)]
     fn get(&self, path: &Path) -> Option<PackageJsonRc> {
-        self.cache.get(path).cloned()
+        self.cache.get(path).cloned().flatten()
     }
-    fn set(&mut self, path: PathBuf, package_json: PackageJsonRc) {
+    fn set(&mut self, path: PathBuf, package_json: Option<PackageJsonRc>) {
         self.cache.insert(path, package_json);
     }
 }
@@ -531,7 +554,7 @@ impl NodeRequireLoader for RequireLoader {
 
     fn ensure_read_permission<'a>(
         &self,
-        permissions: &mut dyn deno_node::NodePermissions,
+        permissions: &mut PermissionsContainer,
         path: Cow<'a, Path>,
     ) -> Result<Cow<'a, Path>, JsErrorBox> {
         let is_in_node_modules = path
@@ -547,7 +570,7 @@ impl NodeRequireLoader for RequireLoader {
         }
     }
 
-    fn is_maybe_cjs(&self, specifier: &reqwest::Url) -> Result<bool, ClosestPkgJsonError> {
+    fn is_maybe_cjs(&self, specifier: &reqwest::Url) -> Result<bool, PackageJsonLoadError> {
         if specifier.scheme() != "file" {
             return Ok(false);
         }

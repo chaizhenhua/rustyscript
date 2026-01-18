@@ -1,4 +1,4 @@
-use deno_core::{serde_json, v8::GetPropertyNamesArgs};
+use deno_core::{serde_json, v8, v8::GetPropertyNamesArgs};
 
 use crate::{js_value::Function, Error, Module, ModuleHandle, Runtime, RuntimeOptions};
 
@@ -279,7 +279,7 @@ impl ModuleWrapper {
             .call_stored_function_immediate(Some(&self.module_context), function, args)
     }
 
-    /// Retrieves the names of the module's exports.  
+    /// Retrieves the names of the module's exports.
     /// (Keys that are not valid UTF-8, may not work as intended due to encoding issues)
     ///
     /// # Returns
@@ -291,15 +291,21 @@ impl ModuleWrapper {
             .deno_runtime()
             .get_module_namespace(self.module_context.id())
         {
-            let mut scope = self.runtime.deno_runtime().handle_scope();
-            let global = namespace.open(&mut scope);
+            let context = self.runtime.deno_runtime().main_context();
+            let isolate = self.runtime.deno_runtime().v8_isolate();
+            let pinned_scope = std::pin::pin!(v8::HandleScope::new(isolate));
+            let mut scope = pinned_scope.init();
+            let context_local = v8::Local::new(&scope, context);
+            let mut context_scope = v8::ContextScope::new(&mut scope, context_local);
+
+            let global = v8::Local::new(&context_scope, namespace);
             if let Some(keys_obj) =
-                global.get_property_names(&mut scope, GetPropertyNamesArgs::default())
+                global.get_property_names(&context_scope, GetPropertyNamesArgs::default())
             {
                 for i in 0..keys_obj.length() {
-                    if let Ok(key_index) = deno_core::serde_v8::to_v8(&mut scope, i) {
-                        if let Some(key_name_v8) = keys_obj.get(&mut scope, key_index) {
-                            let name = key_name_v8.to_rust_string_lossy(&mut scope);
+                    if let Ok(key_index) = deno_core::serde_v8::to_v8(&mut context_scope, i) {
+                        if let Some(key_name_v8) = keys_obj.get(&context_scope, key_index) {
+                            let name = key_name_v8.to_rust_string_lossy(&context_scope);
                             keys.push(name);
                         }
                     }

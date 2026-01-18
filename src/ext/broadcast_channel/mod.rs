@@ -1,10 +1,12 @@
-use deno_broadcast_channel::InMemoryBroadcastChannel;
 use deno_core::{extension, Extension};
+use deno_web::InMemoryBroadcastChannel;
 
 use super::ExtensionTrait;
 
 mod wrapper;
-pub use wrapper::BroadcastChannelWrapper;
+pub use wrapper::{
+    BroadcastChannelWrapper, IsolatedBroadcastChannel, IsolatedBroadcastChannelWrapper,
+};
 
 extension!(
     init_broadcast_channel,
@@ -12,20 +14,30 @@ extension!(
     esm_entry_point = "ext:init_broadcast_channel/init_broadcast_channel.js",
     esm = [ dir "src/ext/broadcast_channel", "init_broadcast_channel.js" ],
 );
+
+extension!(
+    deno_broadcast_channel,
+    deps = [deno_web],
+    esm = [ dir "src/ext/broadcast_channel", "01_broadcast_channel.js" ],
+);
+
 impl ExtensionTrait<()> for init_broadcast_channel {
     fn init((): ()) -> Extension {
         init_broadcast_channel::init()
     }
 }
-impl ExtensionTrait<InMemoryBroadcastChannel> for deno_broadcast_channel::deno_broadcast_channel {
-    fn init(channel: InMemoryBroadcastChannel) -> Extension {
-        deno_broadcast_channel::deno_broadcast_channel::init(channel)
+
+impl ExtensionTrait<()> for deno_broadcast_channel {
+    fn init((): ()) -> Extension {
+        deno_broadcast_channel::init()
     }
 }
 
-pub fn extensions(channel: InMemoryBroadcastChannel, is_snapshot: bool) -> Vec<Extension> {
+// Note: broadcast_channel functionality is now integrated into deno_web
+// No separate initialization is needed as it's handled by deno_web extension
+pub fn extensions(_channel: InMemoryBroadcastChannel, is_snapshot: bool) -> Vec<Extension> {
     vec![
-        deno_broadcast_channel::deno_broadcast_channel::build(channel, is_snapshot),
+        deno_broadcast_channel::build((), is_snapshot),
         init_broadcast_channel::build((), is_snapshot),
     ]
 }
@@ -46,6 +58,11 @@ mod test {
     "
     );
 
+    /// This test is identical to the original test from origin/master that verified
+    /// JavaScript ↔ Rust bidirectional communication.
+    ///
+    /// BroadcastChannelWrapper has been restored to maintain full backward compatibility
+    /// with origin/master behavior.
     #[test]
     fn test_broadcast_channel() {
         let options = RuntimeOptions::default();

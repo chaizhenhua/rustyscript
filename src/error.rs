@@ -107,6 +107,12 @@ impl From<deno_core::error::JsError> for Error {
     }
 }
 
+impl From<Box<deno_core::error::JsError>> for Error {
+    fn from(err: Box<deno_core::error::JsError>) -> Self {
+        Self::JsError(err)
+    }
+}
+
 impl Error {
     /// Formats an error for display in a terminal
     /// If the error is a `JsError`, it will attempt to highlight the source line
@@ -239,7 +245,7 @@ map_error!(deno_ast::TranspileError, |e| Error::Runtime(e.to_string()));
 map_error!(deno_core::error::CoreError, |e| {
     let e = e.into_kind();
     match e {
-        CoreErrorKind::Js(js_error) => Error::JsError(Box::new(js_error)),
+        CoreErrorKind::Js(js_error) => Error::JsError(js_error),
         _ => Error::Runtime(e.to_string()),
     }
 });
@@ -273,10 +279,7 @@ map_error!(deno_core::futures::channel::oneshot::Canceled, |e| {
     Error::Timeout(e.to_string())
 });
 
-#[cfg(feature = "broadcast_channel")]
-map_error!(deno_broadcast_channel::BroadcastChannelError, |e| {
-    Error::Runtime(e.to_string())
-});
+// Note: BroadcastChannelError mapping removed - no longer exported from deno_web
 
 #[cfg(test)]
 mod test {

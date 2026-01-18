@@ -139,7 +139,7 @@ pub struct ExtensionOptions {
     /// Requires the `broadcast_channel` feature to be enabled
     #[cfg(feature = "broadcast_channel")]
     #[cfg_attr(docsrs, doc(cfg(feature = "broadcast_channel")))]
-    pub broadcast_channel: deno_broadcast_channel::InMemoryBroadcastChannel,
+    pub broadcast_channel: deno_web::InMemoryBroadcastChannel,
 
     /// Key-value store for the `deno_kv` extension
     ///
@@ -160,9 +160,20 @@ pub struct ExtensionOptions {
 
 impl Default for ExtensionOptions {
     fn default() -> Self {
+        // Create a shared broadcast channel instance for both web and broadcast_channel extensions
+        #[cfg(feature = "broadcast_channel")]
+        let broadcast_channel = deno_web::InMemoryBroadcastChannel::default();
+
         Self {
             #[cfg(feature = "web")]
-            web: web::WebOptions::default(),
+            web: {
+                let mut web_options = web::WebOptions::default();
+                #[cfg(feature = "broadcast_channel")]
+                {
+                    web_options.broadcast_channel = broadcast_channel.clone();
+                }
+                web_options
+            },
 
             #[cfg(feature = "crypto")]
             crypto_seed: None,
@@ -180,7 +191,7 @@ impl Default for ExtensionOptions {
             filesystem: std::sync::Arc::new(deno_fs::RealFs),
 
             #[cfg(feature = "broadcast_channel")]
-            broadcast_channel: deno_broadcast_channel::InMemoryBroadcastChannel::default(),
+            broadcast_channel,
 
             #[cfg(feature = "kv")]
             kv_store: kv::KvStore::default(),
@@ -202,14 +213,18 @@ pub(crate) fn all_extensions(
     #[cfg(feature = "webidl")]
     extensions.extend(webidl::extensions(is_snapshot));
 
-    #[cfg(feature = "console")]
-    extensions.extend(console::extensions(is_snapshot));
+    // web or web_stub must come before url and console since they depend on deno_web
+    #[cfg(feature = "web")]
+    extensions.extend(web::extensions(options.web.clone(), is_snapshot));
+
+    #[cfg(all(not(feature = "web"), feature = "web_stub"))]
+    extensions.extend(web_stub::extensions(is_snapshot));
 
     #[cfg(feature = "url")]
     extensions.extend(url::extensions(is_snapshot));
 
-    #[cfg(feature = "web")]
-    extensions.extend(web::extensions(options.web.clone(), is_snapshot));
+    #[cfg(feature = "console")]
+    extensions.extend(console::extensions(is_snapshot));
 
     #[cfg(feature = "broadcast_channel")]
     extensions.extend(broadcast_channel::extensions(
@@ -219,9 +234,6 @@ pub(crate) fn all_extensions(
 
     #[cfg(feature = "cache")]
     extensions.extend(cache::extensions(options.cache.clone(), is_snapshot));
-
-    #[cfg(all(not(feature = "web"), feature = "web_stub"))]
-    extensions.extend(web_stub::extensions(is_snapshot));
 
     #[cfg(feature = "crypto")]
     extensions.extend(crypto::extensions(options.crypto_seed, is_snapshot));
@@ -236,7 +248,7 @@ pub(crate) fn all_extensions(
     ));
 
     #[cfg(feature = "websocket")]
-    extensions.extend(websocket::extensions(options.web.clone(), is_snapshot));
+    extensions.extend(websocket::extensions(is_snapshot));
 
     #[cfg(feature = "fs")]
     extensions.extend(fs::extensions(options.filesystem.clone(), is_snapshot));

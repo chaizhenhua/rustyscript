@@ -35,6 +35,10 @@ impl RustyLoader {
         self.inner_mut().set_current_dir(current_dir);
     }
 
+    pub fn whitelist_add(&self, specifier: &ModuleSpecifier) {
+        self.inner_mut().whitelist_add(specifier.as_str());
+    }
+
     fn inner(&self) -> std::cell::Ref<'_, InnerRustyLoader> {
         self.inner.borrow()
     }
@@ -90,18 +94,11 @@ impl ModuleLoader for RustyLoader {
     fn load(
         &self,
         module_specifier: &ModuleSpecifier,
-        maybe_referrer: Option<&ModuleSpecifier>,
-        is_dyn_import: bool,
-        requested_module_type: deno_core::RequestedModuleType,
+        maybe_referrer: Option<&deno_core::ModuleLoadReferrer>,
+        options: deno_core::ModuleLoadOptions,
     ) -> deno_core::ModuleLoadResponse {
         let inner = self.inner.clone();
-        InnerRustyLoader::load(
-            inner,
-            module_specifier,
-            maybe_referrer,
-            is_dyn_import,
-            requested_module_type,
-        )
+        InnerRustyLoader::load(inner, module_specifier, maybe_referrer, options)
     }
 
     fn get_source_map(&self, file_name: &str) -> Option<Cow<'_, [u8]>> {
@@ -167,8 +164,11 @@ mod test {
         let response = loader.load(
             &specifier,
             None,
-            false,
-            deno_core::RequestedModuleType::None,
+            deno_core::ModuleLoadOptions {
+                is_dynamic_import: false,
+                is_synchronous: false,
+                requested_module_type: deno_core::RequestedModuleType::None,
+            },
         );
         match response {
             ModuleLoadResponse::Async(_) => panic!("Unexpected response"),
@@ -218,7 +218,6 @@ mod test {
             specifier: &ModuleSpecifier,
             _referrer: Option<&ModuleSpecifier>,
             _is_dyn_import: bool,
-            _requested_module_type: deno_core::RequestedModuleType,
         ) -> Option<Result<String, ModuleLoaderError>> {
             match specifier.as_str() {
                 "test://1" => Some(Ok("console.log('Rock')".to_string())),
@@ -249,8 +248,11 @@ mod test {
             let response = loader.load(
                 &specifier,
                 None,
-                false,
-                deno_core::RequestedModuleType::None,
+                deno_core::ModuleLoadOptions {
+                    is_dynamic_import: false,
+                    is_synchronous: false,
+                    requested_module_type: deno_core::RequestedModuleType::None,
+                },
             );
             match response {
                 ModuleLoadResponse::Async(future) => {
@@ -265,5 +267,63 @@ mod test {
                 ModuleLoadResponse::Sync(_) => panic!("Unexpected response"),
             }
         }
+    }
+
+    /// Test backward compatibility for ImportProvider trait
+    #[test]
+    fn test_import_provider_backward_compat() {
+        use deno_core::RequestedModuleType;
+
+        // Test provider that uses the old deprecated API
+        struct OldStyleProvider;
+        impl ImportProvider for OldStyleProvider {
+            // Override the old method
+            #[allow(deprecated)]
+            fn import_with_type(
+                &mut self,
+                specifier: &ModuleSpecifier,
+                _referrer: Option<&ModuleSpecifier>,
+                _is_dyn_import: bool,
+                _requested_module_type: RequestedModuleType,
+            ) -> Option<Result<String, ModuleLoaderError>> {
+                match specifier.as_str() {
+                    "test://old" => Some(Ok("console.log('old style')".to_string())),
+                    _ => None,
+                }
+            }
+        }
+
+        // Test provider that uses the new API
+        struct NewStyleProvider;
+        impl ImportProvider for NewStyleProvider {
+            fn import(
+                &mut self,
+                specifier: &ModuleSpecifier,
+                _referrer: Option<&ModuleSpecifier>,
+                _is_dyn_import: bool,
+            ) -> Option<Result<String, ModuleLoaderError>> {
+                match specifier.as_str() {
+                    "test://new" => Some(Ok("console.log('new style')".to_string())),
+                    _ => None,
+                }
+            }
+        }
+
+        // Both should work
+        let mut old_provider = OldStyleProvider;
+        let mut new_provider = NewStyleProvider;
+
+        let spec_old = ModuleSpecifier::parse("test://old").unwrap();
+        let spec_new = ModuleSpecifier::parse("test://new").unwrap();
+
+        // Old style provider should work via the new interface
+        let result = old_provider.import(&spec_old, None, false);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().unwrap(), "console.log('old style')");
+
+        // New style provider should work
+        let result = new_provider.import(&spec_new, None, false);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().unwrap(), "console.log('new style')");
     }
 }

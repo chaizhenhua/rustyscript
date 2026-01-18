@@ -50,7 +50,7 @@ impl ExtensionTrait<WebOptions> for deno_fetch::deno_fetch {
             resolver: options.resolver.clone(),
         };
 
-        deno_fetch::deno_fetch::init::<PermissionsContainer>(options)
+        deno_fetch::deno_fetch::init(options)
     }
 }
 
@@ -80,7 +80,7 @@ impl ExtensionTrait<WebOptions> for init_net {
 }
 impl ExtensionTrait<WebOptions> for deno_net::deno_net {
     fn init(options: WebOptions) -> Extension {
-        deno_net::deno_net::init::<PermissionsContainer>(
+        deno_net::deno_net::init(
             options.root_cert_store_provider.clone(),
             options.unsafely_ignore_certificate_errors.clone(),
         )
@@ -113,7 +113,14 @@ extension!(
     options = {
         permissions: Arc<dyn WebPermissions>
     },
-    state = |state, config| state.put(PermissionsContainer(config.permissions)),
+    state = |state, config| {
+        state.put(PermissionsContainer(config.permissions));
+        if !state.has::<deno_permissions::PermissionsContainer>() {
+            let parser = Arc::new(deno_permissions::RuntimePermissionDescriptorParser::new(sys_traits::impls::RealSys));
+            let permissions = deno_permissions::PermissionsContainer::allow_all(parser);
+            state.put(permissions);
+        }
+    },
 );
 impl ExtensionTrait<WebOptions> for init_web {
     fn init(options: WebOptions) -> Extension {
@@ -123,7 +130,11 @@ impl ExtensionTrait<WebOptions> for init_web {
 
 impl ExtensionTrait<WebOptions> for deno_web::deno_web {
     fn init(options: WebOptions) -> Extension {
-        deno_web::deno_web::init::<PermissionsContainer>(options.blob_store, options.base_url)
+        deno_web::deno_web::init(
+            options.blob_store,
+            options.base_url,
+            options.broadcast_channel,
+        )
     }
 }
 

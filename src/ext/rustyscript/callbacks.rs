@@ -32,12 +32,12 @@ pub trait RsCallback: 'static {
     /// Convert a series of `v8::Value` objects into a tuple of arguments
     fn args_from_v8(
         args: Vec<v8::Global<v8::Value>>,
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::HandleScope<'_>,
     ) -> Result<Self::Arguments, Error>;
 
     fn slow_args_from_v8(
         args: Vec<v8::Global<v8::Value>>,
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::HandleScope<'_>,
     ) -> Result<deno_core::serde_json::Value, Error> {
         let args = Self::args_from_v8(args, scope)?;
         deno_core::serde_json::to_value(args).map_err(Error::from)
@@ -46,16 +46,27 @@ pub trait RsCallback: 'static {
     /// Convert a series of `v8::Value` objects into a tuple of arguments
     fn decode_v8(
         args: v8::Global<v8::Value>,
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::HandleScope<'_>,
     ) -> Result<Self::Arguments, Error> {
-        let args = v8::Local::new(scope, args);
-        let args = if args.is_array() {
-            let args: v8::Local<v8::Array> = v8::Local::new(scope, args).try_into()?;
+        // SAFETY: v8 API requires &PinnedRef<HandleScope> but &mut HandleScope has the same layout
+        // We transmute to satisfy the type requirements while maintaining safety
+        let scope_ref =
+            unsafe { &*std::ptr::from_mut(scope).cast::<v8::PinnedRef<v8::HandleScope<'_, ()>>>() };
+        // SAFETY: Object methods require HandleScope<Context>
+        let ctx_scope = unsafe {
+            &*std::ptr::from_mut(scope).cast::<v8::PinnedRef<v8::HandleScope<'_, v8::Context>>>()
+        };
+        // SAFETY: v8::Global::new requires &Isolate
+        let isolate = unsafe { &*std::ptr::from_mut(scope).cast::<v8::Isolate>() };
+        let args_local = v8::Local::new(scope_ref, args);
+
+        let args = if args_local.is_array() {
+            let args: v8::Local<v8::Array> = v8::Local::new(scope_ref, args_local).try_into()?;
             let len = args.length() as usize;
             let mut result = Vec::with_capacity(len);
             for i in 0..len {
                 let index = v8::Integer::new(
-                    scope,
+                    scope_ref,
                     i.try_into().map_err(|_| {
                         Error::Runtime(format!(
                             "Could not decode {len} arguments - use `big_json_args`"
@@ -63,13 +74,13 @@ pub trait RsCallback: 'static {
                     })?,
                 );
                 let arg = args
-                    .get(scope, index.into())
+                    .get(ctx_scope, index.into())
                     .ok_or_else(|| Error::Runtime(format!("Invalid argument at index {i}")))?;
-                result.push(v8::Global::new(scope, arg));
+                result.push(v8::Global::new(isolate, arg));
             }
             result
         } else {
-            vec![v8::Global::new(scope, args)]
+            vec![v8::Global::new(isolate, args_local)]
         };
 
         Self::args_from_v8(args, scope)
@@ -97,13 +108,23 @@ macro_rules! codegen_function {
 
                 fn args_from_v8(
                     args: Vec<v8::Global<v8::Value>>,
-                    scope: &mut v8::HandleScope,
+                    scope: &mut v8::HandleScope<'_>,
                 ) -> Result<Self::Arguments, $crate::Error> {
+                    // SAFETY: v8 API requires PinnedRef types but HandleScope has the same layout
+                    let scope_ref = unsafe {
+                        &*std::ptr::from_mut(scope)
+                            .cast::<$crate::deno_core::v8::PinnedRef<$crate::deno_core::v8::HandleScope<'_, ()>>>()
+                    };
+                    let scope_mut = unsafe {
+                        &mut *std::ptr::from_mut(scope).cast::<$crate::deno_core::v8::PinnedRef<
+                            $crate::deno_core::v8::HandleScope<'_, $crate::deno_core::v8::Context>,
+                        >>()
+                    };
                     let mut args = args.into_iter();
                     $(
                         let next = args.next().ok_or($crate::Error::Runtime(format!("Missing argument {} for {}", stringify!($n), stringify!($name))))?;
-                        let next = $crate::deno_core::v8::Local::new(scope, next);
-                        let $n:$t = $crate::deno_core::serde_v8::from_v8(scope, next)?;
+                        let next = $crate::deno_core::v8::Local::new(scope_ref, next);
+                        let $n:$t = $crate::deno_core::serde_v8::from_v8(scope_mut, next)?;
                     )+
                     Ok(($($n,)+))
                 }

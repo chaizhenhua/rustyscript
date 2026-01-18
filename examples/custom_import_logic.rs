@@ -78,7 +78,6 @@ impl ImportProvider for MyImportProvider {
         specifier: &ModuleSpecifier,
         _referrer: Option<&ModuleSpecifier>,
         _is_dyn_import: bool,
-        _requested_module_type: deno_core::RequestedModuleType,
     ) -> Option<Result<String, ModuleLoaderError>> {
         match specifier.scheme() {
             //
@@ -102,8 +101,13 @@ impl ImportProvider for MyImportProvider {
 
 fn main() -> Result<(), rustyscript::Error> {
     let mut import_provider = MyImportProvider::default();
-    import_provider.add_redirect("mod_assert", "https://deno.land/std@0.224.0/assert/mod.ts")?;
-    import_provider.add_static_module("my-module", "export const foo = 1");
+    // Add a redirect for a simple utility module
+    import_provider.add_redirect("colors", "https://deno.land/std@0.224.0/fmt/colors.ts")?;
+    // Add a static module with some test data
+    import_provider.add_static_module(
+        "my-module",
+        "export const foo = 1; export const bar = 'test';",
+    );
 
     let mut runtime = Runtime::new(RuntimeOptions {
         import_provider: Some(Box::new(import_provider)),
@@ -113,10 +117,17 @@ fn main() -> Result<(), rustyscript::Error> {
     let module = Module::new(
         "custom_imports.js",
         "
-        import { assertEquals } from 'redirect:mod_assert';
-        import { foo } from 'static:my-module';
-        
-        assertEquals(1, foo)
+        import { bold } from 'redirect:colors';
+        import { foo, bar } from 'static:my-module';
+
+        // Test static module imports
+        if (foo !== 1) throw new Error('Expected foo to be 1');
+        if (bar !== 'test') throw new Error('Expected bar to be test');
+
+        // Test redirect module import
+        const text = bold('Hello from custom imports!');
+        console.log(text);
+        console.log('✓ All custom import tests passed!');
         ",
     );
 

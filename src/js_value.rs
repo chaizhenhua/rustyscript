@@ -3,10 +3,7 @@
 //!
 //! [Function] and [Promise] are both specializations of [Value] providing deserialize-time type checking
 //! and additional utility functions for interacting with the runtime
-use deno_core::{
-    serde_v8::GlobalValue,
-    v8::{self, HandleScope},
-};
+use deno_core::{serde_v8::GlobalValue, v8};
 use serde::Deserialize;
 
 /// A macro to implement the common functions for [Function], [Promise], and [Value]
@@ -40,14 +37,16 @@ macro_rules! impl_v8 {
             /// Will return an error if the value is the wrong type
             /// For `Value`, this check cannot fail
             pub fn try_from_v8<'a, H>(
-                scope: &mut v8::HandleScope<'a>,
+                scope: &mut v8::PinScope<'a, '_>,
                 value: v8::Global<H>,
             ) -> Result<Self, crate::Error>
             where
                 v8::Local<'a, v8::Value>: From<v8::Local<'a, H>>,
             {
                 let local: v8::Local<v8::Value> = v8::Local::new(scope, value).into();
-                v8::Global::new(scope, local).try_into()
+                // Get isolate reference from the scope using Deref
+                let isolate: &v8::Isolate = scope;
+                v8::Global::new(isolate, local).try_into()
             }
 
             /// Creates a new instance of this struct from a global value
@@ -161,23 +160,35 @@ pub(crate) struct V8Value<V8TypeChecker>(
 
 impl<T: V8TypeChecker> V8Value<T> {
     /// Returns the underlying global as a local in the type configured by the type checker
-    pub(crate) fn as_local<'a>(&self, scope: &mut HandleScope<'a>) -> v8::Local<'a, T::Output>
+    pub(crate) fn as_local<'a, 'i, C>(
+        &self,
+        scope: &v8::PinnedRef<'a, v8::HandleScope<'i, C>>,
+    ) -> v8::Local<'a, T::Output>
     where
         v8::Local<'a, T::Output>: TryFrom<v8::Local<'a, v8::Value>>,
     {
-        let local = v8::Local::new(scope, &self.0);
+        // SAFETY: v8::Local::new requires HandleScope<'_, ()> but works with any context type.
+        // The context parameter is a phantom type marker and doesn't affect memory layout.
+        // We transmute the scope reference to the required type for the API call.
+        let scope_ref = unsafe {
+            &*std::ptr::from_ref(scope).cast::<v8::PinnedRef<'a, v8::HandleScope<'i, ()>>>()
+        };
+        let local = v8::Local::<v8::Value>::new(scope_ref, &self.0);
         v8::Local::<'a, T::Output>::try_from(local)
             .ok()
             .expect("Failed to convert V8Value: Invalid V8TypeChecker!")
     }
 
     /// Returns the underlying global in the type configured by the type checker
-    pub(crate) fn as_global<'a>(&self, scope: &mut HandleScope<'a>) -> v8::Global<T::Output>
+    /// Note: This performs an unchecked cast - the type checker should have validated the type
+    pub(crate) fn as_global(&self, _isolate: &v8::Isolate) -> v8::Global<T::Output>
     where
-        v8::Local<'a, T::Output>: TryFrom<v8::Local<'a, v8::Value>>,
+        T::Output: 'static,
     {
-        let local = self.as_local(scope);
-        v8::Global::new(scope, local)
+        // SAFETY: The type checker should have validated that self.0 is of the correct type
+        // We use transmute to convert v8::Global<v8::Value> to v8::Global<T::Output>
+        // This is safe because v8::Global is just a pointer wrapper
+        unsafe { std::mem::transmute(self.0.clone()) }
     }
 }
 
@@ -211,9 +222,14 @@ impl Value {
     where
         T: serde::de::DeserializeOwned,
     {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        let local = self.0.as_local(&mut scope);
-        Ok(deno_core::serde_v8::from_v8(&mut scope, local)?)
+        let context = runtime.deno_runtime().main_context();
+        let isolate = runtime.deno_runtime().v8_isolate();
+        let scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut scope = scope.init();
+        let context_local = v8::Local::new(&scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut scope, context_local);
+        let local = self.0.as_local(&context_scope);
+        Ok(deno_core::serde_v8::from_v8(&mut context_scope, local)?)
     }
 
     /// Contructs a new Value from a `v8::Value` global
@@ -253,17 +269,30 @@ mod test {
         let mut runtime = Runtime::new(RuntimeOptions::default()).unwrap();
         let handle = runtime.load_module(&module).unwrap();
 
+        // Test basic value extraction
         let f: Value = runtime.get_value(Some(&handle), "f").unwrap();
         let value: usize = f.try_into(&mut runtime).unwrap();
         assert_eq!(value, 42);
 
+        // Test function extraction and conversion
         let g: Value = runtime.get_value(Some(&handle), "g").unwrap();
         let global = g.into_v8();
-        let _f = Function::try_from_v8(&mut runtime.deno_runtime().handle_scope(), global.clone())
-            .unwrap();
-        let f = unsafe { Function::from_v8_unchecked(global) };
-        let _f = f
-            .into_inner()
-            .as_local(&mut runtime.deno_runtime().handle_scope());
+
+        // Test try_from_v8 with proper context scope
+        let context = runtime.deno_runtime().main_context();
+        let isolate = runtime.deno_runtime().v8_isolate();
+        let pinned = std::pin::pin!(v8::HandleScope::new(isolate));
+        let mut scope = pinned.init();
+        let context_local = v8::Local::new(&scope, context);
+        let mut context_scope = v8::ContextScope::new(&mut scope, context_local);
+
+        // Test that we can create a Function from the global
+        let _f = Function::try_from_v8(&mut context_scope, global.clone()).unwrap();
+
+        // Test from_v8_unchecked
+        let f = unsafe { Function::from_v8_unchecked(global.clone()) };
+
+        // Test as_local with context scope
+        let _local = f.into_inner().as_local(&context_scope);
     }
 }

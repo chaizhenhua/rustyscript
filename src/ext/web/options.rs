@@ -6,6 +6,28 @@ use hyper_util::client::legacy::Builder;
 use super::{DefaultWebPermissions, WebPermissions};
 
 /// Options for configuring the web related extensions
+///
+/// # Backward Compatibility Note
+///
+/// This struct has a new field `broadcast_channel` added in version 0.8.0.
+/// **Existing code using `WebOptions::default()` is not affected.**
+///
+/// If you are manually constructing `WebOptions`, you need to add the new field:
+/// ```rust,ignore
+/// // Update your code like this:
+/// let options = WebOptions {
+///     permissions: my_permissions,
+///     blob_store: my_blob_store,
+///     broadcast_channel: deno_web::InMemoryBroadcastChannel::default(), // NEW FIELD
+///     // ... other fields ...
+/// };
+///
+/// // Or use the builder pattern with ..Default::default():
+/// let options = WebOptions {
+///     permissions: my_permissions,
+///     ..Default::default()
+/// };
+/// ```
 #[derive(Clone)]
 pub struct WebOptions {
     /// Base URL for some `deno_web` OPs
@@ -42,6 +64,9 @@ pub struct WebOptions {
     /// Blob store for the web related extensions
     pub blob_store: Arc<deno_web::BlobStore>,
 
+    /// Broadcast channel for cross-context messaging
+    pub broadcast_channel: deno_web::InMemoryBroadcastChannel,
+
     ///A callback to customize HTTP client configuration.
     ///
     /// For more info on what can be configured, see [`hyper_util::client::legacy::Builder`]
@@ -67,6 +92,7 @@ impl Default for WebOptions {
             file_fetch_handler: std::rc::Rc::new(deno_fetch::DefaultFileFetchHandler),
             permissions: Arc::new(DefaultWebPermissions),
             blob_store: Arc::new(deno_web::BlobStore::default()),
+            broadcast_channel: deno_web::InMemoryBroadcastChannel::default(),
             client_builder_hook: None,
             resolver: Resolver::default(),
             telemetry_config: deno_telemetry::OtelConfig::default(),

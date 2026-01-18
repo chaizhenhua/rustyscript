@@ -1,4 +1,4 @@
-use deno_core::v8::{self, HandleScope, WriteFlags};
+use deno_core::v8::{self, WriteFlags};
 use serde::Deserialize;
 
 use super::V8Value;
@@ -16,8 +16,10 @@ impl String {
     /// Converts the string to a rust string
     /// Potentially lossy, if the string contains orphan UTF-16 surrogates
     pub fn to_string_lossy(&self, runtime: &mut crate::Runtime) -> std::string::String {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        self.to_rust_string_lossy(&mut scope)
+        let isolate = runtime.deno_runtime().v8_isolate();
+        let pinned_scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let scope = pinned_scope.init();
+        self.to_rust_string_lossy(&scope)
     }
 
     /// Converts the string to a rust string
@@ -31,37 +33,56 @@ impl String {
     /// Converts the string to a UTF-8 character buffer in the form of a `Vec<u8>`
     /// Excludes the null terminator
     pub fn to_utf8_bytes(&self, runtime: &mut crate::Runtime) -> Vec<u8> {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        self.to_utf8_buffer(&mut scope)
+        let isolate = runtime.deno_runtime().v8_isolate();
+        let pinned_scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let scope = pinned_scope.init();
+        self.to_utf8_buffer(&scope)
     }
 
     /// Converts the string to a UTF-16 character buffer in the form of a `Vec<u16>`
     /// Excludes the null terminator
     pub fn to_utf16_bytes(&self, runtime: &mut crate::Runtime) -> Vec<u16> {
-        let mut scope = runtime.deno_runtime().handle_scope();
-        self.to_utf16_buffer(&mut scope)
+        let isolate = runtime.deno_runtime().v8_isolate();
+        let pinned_scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let scope = pinned_scope.init();
+        self.to_utf16_buffer(&scope)
     }
 
-    pub(crate) fn to_rust_string_lossy(&self, scope: &mut HandleScope<'_>) -> std::string::String {
+    pub(crate) fn to_rust_string_lossy<C>(
+        &self,
+        scope: &v8::PinnedRef<'_, v8::HandleScope<'_, C>>,
+    ) -> std::string::String {
         let local = self.0.as_local(scope);
-        local.to_rust_string_lossy(scope)
+        // SAFETY: v8::String::to_rust_string_lossy requires &Isolate. PinnedRef<HandleScope> can be transmuted to &Isolate.
+        let isolate = unsafe { &*std::ptr::from_ref(scope).cast::<v8::Isolate>() };
+        local.to_rust_string_lossy(isolate)
     }
 
-    pub(crate) fn to_utf16_buffer(&self, scope: &mut HandleScope<'_>) -> Vec<u16> {
+    pub(crate) fn to_utf16_buffer<C>(
+        &self,
+        scope: &v8::PinnedRef<'_, v8::HandleScope<'_, C>>,
+    ) -> Vec<u16> {
         let local = self.0.as_local(scope);
         let u16_len = local.length();
         let mut buffer = vec![0; u16_len];
 
-        local.write_v2(scope, 0, &mut buffer, WriteFlags::empty());
+        // SAFETY: v8 methods may require &Isolate. PinnedRef<HandleScope> can be transmuted to &Isolate.
+        let isolate = unsafe { &*std::ptr::from_ref(scope).cast::<v8::Isolate>() };
+        local.write_v2(isolate, 0, &mut buffer, WriteFlags::empty());
         buffer
     }
 
-    pub(crate) fn to_utf8_buffer(&self, scope: &mut HandleScope<'_>) -> Vec<u8> {
+    pub(crate) fn to_utf8_buffer<C>(
+        &self,
+        scope: &v8::PinnedRef<'_, v8::HandleScope<'_, C>>,
+    ) -> Vec<u8> {
         let local = self.0.as_local(scope);
-        let u8_len = local.utf8_length(scope);
+        // SAFETY: v8 methods may require &Isolate. PinnedRef<HandleScope> can be transmuted to &Isolate.
+        let isolate = unsafe { &*std::ptr::from_ref(scope).cast::<v8::Isolate>() };
+        let u8_len = local.utf8_length(isolate);
         let mut buffer = vec![0; u8_len];
 
-        local.write_utf8_v2(scope, &mut buffer, WriteFlags::empty(), None);
+        local.write_utf8_v2(isolate, &mut buffer, WriteFlags::empty(), None);
         buffer
     }
 }

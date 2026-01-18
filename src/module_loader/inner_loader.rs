@@ -274,12 +274,12 @@ impl InnerRustyLoader {
     pub fn load(
         inner: Rc<RefCell<Self>>,
         module_specifier: &ModuleSpecifier,
-        maybe_referrer: Option<&ModuleSpecifier>,
-        is_dyn_import: bool,
-        requested_module_type: deno_core::RequestedModuleType,
+        maybe_referrer: Option<&deno_core::ModuleLoadReferrer>,
+        options: deno_core::ModuleLoadOptions,
     ) -> deno_core::ModuleLoadResponse {
         let module_specifier = module_specifier.clone();
-        let maybe_referrer = maybe_referrer.cloned();
+        let maybe_referrer_url = maybe_referrer.map(|r| r.specifier.clone());
+        let is_dyn_import = options.is_dynamic_import;
 
         // Check if the module is in the cache first
         if let Some(cache) = &inner.borrow().cache_provider {
@@ -292,9 +292,8 @@ impl InnerRustyLoader {
         let provider_result = inner.borrow_mut().import_provider.as_mut().and_then(|p| {
             p.import(
                 &module_specifier,
-                maybe_referrer.as_ref(),
+                maybe_referrer_url.as_ref(),
                 is_dyn_import,
-                requested_module_type,
             )
         });
         if let Some(result) = provider_result {
