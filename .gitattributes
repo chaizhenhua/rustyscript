@@ -1,0 +1,14 @@
+# Disable automatic line ending conversion
+# This repository has mixed line endings (CRLF and LF) and we want to preserve them as-is
+* -text
+
+# Binary files (explicit, for clarity)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
