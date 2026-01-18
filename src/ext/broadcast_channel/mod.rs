@@ -4,10 +4,9 @@ use deno_web::InMemoryBroadcastChannel;
 use super::ExtensionTrait;
 
 mod wrapper;
-pub use wrapper::{BroadcastChannel, BroadcastChannelWrapper};
-
-mod shared_wrapper;
-pub use shared_wrapper::SharedBroadcastChannelWrapper;
+pub use wrapper::{
+    BroadcastChannelWrapper, IsolatedBroadcastChannel, IsolatedBroadcastChannelWrapper,
+};
 
 extension!(
     init_broadcast_channel,
@@ -47,7 +46,7 @@ pub fn extensions(_channel: InMemoryBroadcastChannel, is_snapshot: bool) -> Vec<
 mod test {
     use deno_core::PollEventLoopOptions;
 
-    use crate::{module, Module, Runtime, RuntimeOptions, SharedBroadcastChannelWrapper};
+    use crate::{module, BroadcastChannelWrapper, Module, Runtime, RuntimeOptions};
 
     static TEST_MOD: Module = module!(
         "test.js",
@@ -59,21 +58,20 @@ mod test {
     "
     );
 
-    /// This test recreates the original test from origin/master that verified
+    /// This test is identical to the original test from origin/master that verified
     /// JavaScript ↔ Rust bidirectional communication.
     ///
-    /// The test was originally removed because the old BroadcastChannelWrapper
-    /// could no longer communicate with JavaScript. The new SharedBroadcastChannelWrapper
-    /// restores this functionality.
+    /// BroadcastChannelWrapper has been restored to maintain full backward compatibility
+    /// with origin/master behavior.
     #[test]
     fn test_broadcast_channel() {
         let options = RuntimeOptions::default();
-        let channel = options.extension_options.web.broadcast_channel.clone();
+        let channel = options.extension_options.broadcast_channel.clone();
 
         let mut runtime = Runtime::new(options).unwrap();
         let tokio_runtime = runtime.tokio_runtime();
 
-        let channel = SharedBroadcastChannelWrapper::new(&channel, "my_channel").unwrap();
+        let channel = BroadcastChannelWrapper::new(&channel, "my_channel").unwrap();
 
         tokio_runtime
             .block_on(runtime.load_module_async(&TEST_MOD))

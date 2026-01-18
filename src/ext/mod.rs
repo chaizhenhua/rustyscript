@@ -160,9 +160,20 @@ pub struct ExtensionOptions {
 
 impl Default for ExtensionOptions {
     fn default() -> Self {
+        // Create a shared broadcast channel instance for both web and broadcast_channel extensions
+        #[cfg(feature = "broadcast_channel")]
+        let broadcast_channel = deno_web::InMemoryBroadcastChannel::default();
+
         Self {
             #[cfg(feature = "web")]
-            web: web::WebOptions::default(),
+            web: {
+                let mut web_options = web::WebOptions::default();
+                #[cfg(feature = "broadcast_channel")]
+                {
+                    web_options.broadcast_channel = broadcast_channel.clone();
+                }
+                web_options
+            },
 
             #[cfg(feature = "crypto")]
             crypto_seed: None,
@@ -180,7 +191,7 @@ impl Default for ExtensionOptions {
             filesystem: std::sync::Arc::new(deno_fs::RealFs),
 
             #[cfg(feature = "broadcast_channel")]
-            broadcast_channel: deno_web::InMemoryBroadcastChannel::default(),
+            broadcast_channel,
 
             #[cfg(feature = "kv")]
             kv_store: kv::KvStore::default(),
