@@ -333,6 +333,11 @@ mod test {
 
     /// Test for backward compatibility - verify the new API works with the patterns
     /// users would have used with the old API
+    ///
+    /// ⚠️ IMPORTANT LIMITATION: Unlike the original implementation, this wrapper
+    /// is for Rust-to-Rust communication only. The original test that verified
+    /// JavaScript ↔ Rust communication is no longer possible due to upstream
+    /// deno_web API changes that made broadcast channel methods private.
     #[test]
     fn test_backward_compat_api_usage() {
         // Old usage pattern:
@@ -340,7 +345,7 @@ mod test {
         // let channel = options.extension_options.broadcast_channel.clone();
         // let wrapper = BroadcastChannelWrapper::new(&channel, "my_channel").unwrap();
 
-        // New usage pattern should work similarly:
+        // New usage pattern should work similarly for Rust-side operations:
         let channel = BroadcastChannel::new();
         let mut runtime = Runtime::new(RuntimeOptions::default()).unwrap();
         let wrapper = channel.subscribe("my_channel").unwrap();
@@ -364,5 +369,59 @@ mod test {
                 .unwrap();
             assert!(result.is_none());
         });
+    }
+
+    /// Test that JavaScript BroadcastChannel still works within JavaScript
+    ///
+    /// This test confirms that while Rust BroadcastChannelWrapper cannot communicate
+    /// with JavaScript BroadcastChannel, the JavaScript API itself still works correctly.
+    #[test]
+    fn test_javascript_broadcast_channel_internal() {
+        use crate::{Module, Runtime, RuntimeOptions};
+        use deno_core::PollEventLoopOptions;
+
+        let test_mod = Module::new(
+            "test.js",
+            r#"
+            // Test JavaScript-to-JavaScript communication
+            const channel1 = new BroadcastChannel('test_channel');
+            const channel2 = new BroadcastChannel('test_channel');
+
+            let received = null;
+            channel2.onmessage = (event) => {
+                received = event.data;
+            };
+
+            channel1.postMessage('hello from js');
+
+            // Give it a moment to propagate
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Export the result for verification
+            globalThis.testResult = received;
+            "#,
+        );
+
+        let mut runtime = Runtime::new(RuntimeOptions::default()).unwrap();
+        let tokio_rt = runtime.tokio_runtime();
+
+        let module_handle = tokio_rt.block_on(async {
+            runtime.load_module_async(&test_mod).await.unwrap()
+        });
+
+        // Run event loop to process the BroadcastChannel messages
+        tokio_rt.block_on(async {
+            runtime
+                .await_event_loop(
+                    PollEventLoopOptions::default(),
+                    Some(std::time::Duration::from_secs(1)),
+                )
+                .await
+                .unwrap();
+        });
+
+        // Verify JavaScript BroadcastChannel worked
+        let result: Option<String> = runtime.get_value(Some(&module_handle), "testResult").unwrap();
+        assert_eq!(result, Some("hello from js".to_string()));
     }
 }
