@@ -6,6 +6,28 @@ use hyper_util::client::legacy::Builder;
 use super::{DefaultWebPermissions, WebPermissions};
 
 /// Options for configuring the web related extensions
+///
+/// # Backward Compatibility Note
+///
+/// This struct has a new field `broadcast_channel` added in version 0.8.0.
+/// **Existing code using `WebOptions::default()` is not affected.**
+///
+/// If you are manually constructing `WebOptions`, you need to add the new field:
+/// ```rust,ignore
+/// // Update your code like this:
+/// let options = WebOptions {
+///     permissions: my_permissions,
+///     blob_store: my_blob_store,
+///     broadcast_channel: deno_web::InMemoryBroadcastChannel::default(), // NEW FIELD
+///     // ... other fields ...
+/// };
+///
+/// // Or use the builder pattern with ..Default::default():
+/// let options = WebOptions {
+///     permissions: my_permissions,
+///     ..Default::default()
+/// };
+/// ```
 #[derive(Clone)]
 pub struct WebOptions {
     /// Base URL for some `deno_web` OPs
