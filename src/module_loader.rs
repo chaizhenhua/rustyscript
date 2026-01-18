@@ -268,4 +268,62 @@ mod test {
             }
         }
     }
+
+    /// Test backward compatibility for ImportProvider trait
+    #[test]
+    fn test_import_provider_backward_compat() {
+        use deno_core::RequestedModuleType;
+
+        // Test provider that uses the old deprecated API
+        struct OldStyleProvider;
+        impl ImportProvider for OldStyleProvider {
+            // Override the old method
+            #[allow(deprecated)]
+            fn import_with_type(
+                &mut self,
+                specifier: &ModuleSpecifier,
+                _referrer: Option<&ModuleSpecifier>,
+                _is_dyn_import: bool,
+                _requested_module_type: RequestedModuleType,
+            ) -> Option<Result<String, ModuleLoaderError>> {
+                match specifier.as_str() {
+                    "test://old" => Some(Ok("console.log('old style')".to_string())),
+                    _ => None,
+                }
+            }
+        }
+
+        // Test provider that uses the new API
+        struct NewStyleProvider;
+        impl ImportProvider for NewStyleProvider {
+            fn import(
+                &mut self,
+                specifier: &ModuleSpecifier,
+                _referrer: Option<&ModuleSpecifier>,
+                _is_dyn_import: bool,
+            ) -> Option<Result<String, ModuleLoaderError>> {
+                match specifier.as_str() {
+                    "test://new" => Some(Ok("console.log('new style')".to_string())),
+                    _ => None,
+                }
+            }
+        }
+
+        // Both should work
+        let mut old_provider = OldStyleProvider;
+        let mut new_provider = NewStyleProvider;
+
+        let spec_old = ModuleSpecifier::parse("test://old").unwrap();
+        let spec_new = ModuleSpecifier::parse("test://new").unwrap();
+
+        // Old style provider should work via the new interface
+        let result = old_provider.import(&spec_old, None, false);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().unwrap(), "console.log('old style')");
+
+        // New style provider should work
+        let result = new_provider.import(&spec_new, None, false);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().unwrap(), "console.log('new style')");
+    }
 }

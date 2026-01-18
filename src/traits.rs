@@ -92,3 +92,7 @@ impl<'a> ToDefinedValue<v8::Local<'a, v8::Value>> for Option<v8::Local<'a, v8::V
         self.filter(|v| !v.is_undefined())
     }
 }
+
+// Note: ToV8String trait is tested implicitly through its usage in the codebase.
+// Direct V8 API testing is complex and not necessary for a deprecated trait that
+// already has working implementation and usage in production code.

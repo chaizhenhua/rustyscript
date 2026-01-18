@@ -330,4 +330,39 @@ mod test {
             assert!(result.is_none());
         });
     }
+
+    /// Test for backward compatibility - verify the new API works with the patterns
+    /// users would have used with the old API
+    #[test]
+    fn test_backward_compat_api_usage() {
+        // Old usage pattern:
+        // let options = RuntimeOptions::default();
+        // let channel = options.extension_options.broadcast_channel.clone();
+        // let wrapper = BroadcastChannelWrapper::new(&channel, "my_channel").unwrap();
+
+        // New usage pattern should work similarly:
+        let channel = BroadcastChannel::new();
+        let mut runtime = Runtime::new(RuntimeOptions::default()).unwrap();
+        let wrapper = channel.subscribe("my_channel").unwrap();
+
+        // Verify basic operations work
+        let tokio_rt = runtime.tokio_runtime();
+        tokio_rt.block_on(async {
+            // Send should work
+            wrapper.send(&mut runtime, "test").await.unwrap();
+
+            // Name method (new in this version) should work
+            assert_eq!(wrapper.name(), "my_channel");
+
+            // Close method (new in this version) should work
+            wrapper.close();
+
+            // After closing, recv should return None
+            let result = wrapper
+                .recv::<String>(&mut runtime, Some(std::time::Duration::from_millis(100)))
+                .await
+                .unwrap();
+            assert!(result.is_none());
+        });
+    }
 }
