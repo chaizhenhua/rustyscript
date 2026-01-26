@@ -149,7 +149,7 @@ mod runtime_macros {
     ///     rustyscript.register_entrypoint(load);
     /// ");
     ///
-    /// Runtime::execute_module(
+    /// Runtime::execute_module::<()>(
     ///     &module, vec![],
     ///     Default::default(),
     ///     json_args!("test", 5)
@@ -186,7 +186,7 @@ mod runtime_macros {
     ///     rustyscript.register_entrypoint(load);
     /// ");
     ///
-    /// Runtime::execute_module(
+    /// Runtime::execute_module::<()>(
     ///     &module, vec![],
     ///     Default::default(),
     ///     big_json_args!("test", 5)

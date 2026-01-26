@@ -407,7 +407,8 @@ pub use ext::node::resolvers::RustyResolver;
 #[cfg_attr(docsrs, doc(cfg(feature = "web")))]
 pub use ext::web::{
     AllowlistWebPermissions, CheckedPath, DefaultWebPermissions, PermissionCheckError,
-    PermissionDeniedError, SystemsPermissionKind, WebOptions, WebPermissions,
+    PermissionDeniedError, PermissionsOptions, SystemsPermissionKind, WebOptions, WebPermissions,
+    to_permissions_options,
 };
 pub use ext::ExtensionOptions;
 

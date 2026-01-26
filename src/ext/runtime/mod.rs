@@ -12,7 +12,8 @@ use deno_telemetry::OtelConfig;
 use sys_traits::impls::RealSys;
 
 use super::{
-    node::resolvers::RustyResolver, web::PermissionsContainer, ExtensionOptions, ExtensionTrait,
+    node::resolvers::RustyResolver, web::PermissionsContainer, web::to_permissions_options,
+    ExtensionOptions, ExtensionTrait,
 };
 use crate::module_loader::{LoaderOptions, RustyLoader};
 
@@ -20,7 +21,15 @@ fn build_permissions(
     permissions_container: &PermissionsContainer,
 ) -> ::deno_permissions::PermissionsContainer {
     let parser = Arc::new(RuntimePermissionDescriptorParser::<RealSys>::new(RealSys));
-    ::deno_permissions::PermissionsContainer::new(parser, Permissions::allow_all())
+    let opts = to_permissions_options(permissions_container.0.as_ref());
+
+    match Permissions::from_options(&*parser, &opts) {
+        Ok(perms) => ::deno_permissions::PermissionsContainer::new(parser, perms),
+        Err(_) => {
+            // Fallback for backward compatibility
+            ::deno_permissions::PermissionsContainer::new(parser, Permissions::allow_all())
+        }
+    }
 }
 
 // Some of the polyfills reference the denoland/deno runtime directly

@@ -11,7 +11,8 @@ mod permissions;
 pub(crate) use permissions::PermissionsContainer;
 pub use permissions::{
     AllowlistWebPermissions, CheckedPath, DefaultWebPermissions, PermissionCheckError,
-    PermissionDeniedError, SystemsPermissionKind, WebPermissions,
+    PermissionDeniedError, PermissionsOptions, SystemsPermissionKind, WebPermissions,
+    to_permissions_options,
 };
 
 /// Stub for a node op deno_net expects to find
@@ -114,10 +115,14 @@ extension!(
         permissions: Arc<dyn WebPermissions>
     },
     state = |state, config| {
-        state.put(PermissionsContainer(config.permissions));
+        state.put(PermissionsContainer(config.permissions.clone()));
         if !state.has::<deno_permissions::PermissionsContainer>() {
             let parser = Arc::new(deno_permissions::RuntimePermissionDescriptorParser::new(sys_traits::impls::RealSys));
-            let permissions = deno_permissions::PermissionsContainer::allow_all(parser);
+            let opts = permissions::to_permissions_options(config.permissions.as_ref());
+            let permissions = match deno_permissions::Permissions::from_options(&*parser, &opts) {
+                Ok(p) => deno_permissions::PermissionsContainer::new(parser, p),
+                Err(_) => deno_permissions::PermissionsContainer::allow_all(parser),
+            };
             state.put(permissions);
         }
     },

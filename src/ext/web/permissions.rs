@@ -7,6 +7,7 @@ use std::{
 
 pub use deno_permissions::{
     CheckedPath, PermissionCheckError, PermissionDeniedError, PermissionState,
+    PermissionsOptions,
 };
 
 pub fn oops(msg: impl std::fmt::Display) -> PermissionCheckError {
@@ -639,3 +640,70 @@ impl_sys_permission_kinds!(
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct PermissionsContainer(pub Arc<dyn WebPermissions>);
+
+/// Convert WebPermissions to deno_permissions::PermissionsOptions
+///
+/// This function probes the WebPermissions trait methods to determine
+/// what should be allowed, then converts to PermissionsOptions format.
+///
+/// - For `DefaultWebPermissions` (or equivalent allow-all): returns options that allow everything
+/// - For restrictive permissions (e.g., `AllowlistWebPermissions`): returns options that deny by default
+pub fn to_permissions_options(perms: &dyn WebPermissions) -> PermissionsOptions {
+    // Probe to detect if this is an allow-all implementation
+    // We test multiple permission categories to be thorough
+    let is_allow_all = perms.allow_hrtime()
+        && perms.check_read_all(None).is_ok()
+        && perms.check_write_all("probe").is_ok()
+        && perms.check_host("0.0.0.0", Some(0), "probe").is_ok()
+        && perms.check_env("__PROBE__").is_ok()
+        && perms.check_exec().is_ok();
+
+    if is_allow_all {
+        // DefaultWebPermissions or equivalent - allow everything
+        PermissionsOptions {
+            allow_read: Some(vec![]),
+            deny_read: None,
+            ignore_read: None,
+            allow_write: Some(vec![]),
+            deny_write: None,
+            allow_net: Some(vec![]),
+            deny_net: None,
+            allow_env: Some(vec![]),
+            deny_env: None,
+            ignore_env: None,
+            allow_sys: Some(vec![]),
+            deny_sys: None,
+            allow_ffi: Some(vec![]),
+            deny_ffi: None,
+            allow_run: Some(vec![]),
+            deny_run: None,
+            allow_import: Some(vec![]),
+            deny_import: None,
+            prompt: false,
+        }
+    } else {
+        // Restrictive permissions - deny everything by default
+        // The deno extensions will check permissions and deny operations
+        PermissionsOptions {
+            allow_read: None,
+            deny_read: None,
+            ignore_read: None,
+            allow_write: None,
+            deny_write: None,
+            allow_net: None,
+            deny_net: None,
+            allow_env: None,
+            deny_env: None,
+            ignore_env: None,
+            allow_sys: None,
+            deny_sys: None,
+            allow_ffi: None,
+            deny_ffi: None,
+            allow_run: None,
+            deny_run: None,
+            allow_import: Some(vec![]), // Allow imports by default for module loading
+            deny_import: None,
+            prompt: false,
+        }
+    }
+}
