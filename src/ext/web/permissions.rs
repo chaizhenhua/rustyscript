@@ -6,8 +6,7 @@ use std::{
 };
 
 pub use deno_permissions::{
-    CheckedPath, PermissionCheckError, PermissionDeniedError, PermissionState,
-    PermissionsOptions,
+    CheckedPath, PermissionCheckError, PermissionDeniedError, PermissionState, PermissionsOptions,
 };
 
 pub fn oops(msg: impl std::fmt::Display) -> PermissionCheckError {

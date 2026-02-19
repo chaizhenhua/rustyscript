@@ -9,8 +9,8 @@ use std::time::Duration;
 
 #[cfg(feature = "web")]
 use rustyscript::{
-    AllowlistWebPermissions, DefaultWebPermissions, ExtensionOptions, WebOptions,
-    to_permissions_options,
+    to_permissions_options, AllowlistWebPermissions, DefaultWebPermissions, ExtensionOptions,
+    WebOptions,
 };
 
 /// Test that AllowlistWebPermissions with no allowed hosts blocks fetch
@@ -66,7 +66,7 @@ fn test_allowlist_blocks_fetch() {
             || error_msg.to_lowercase().contains("not allowed")
             || error_msg.to_lowercase().contains("network")
             || error_msg.contains("Requires net access")  // deno_permissions message
-            || error_msg.contains("--allow-net"),         // deno flag suggestion
+            || error_msg.contains("--allow-net"), // deno flag suggestion
         "Error should mention permission denial. Got: {}",
         error_msg
     );

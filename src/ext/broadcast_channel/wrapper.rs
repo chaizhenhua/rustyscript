@@ -293,10 +293,7 @@ impl IsolatedBroadcastChannel {
     ///
     /// # Errors
     /// Will return an error if the subscription cannot be created
-    pub fn subscribe(
-        &self,
-        name: impl ToString,
-    ) -> Result<IsolatedBroadcastChannelWrapper, Error> {
+    pub fn subscribe(&self, name: impl ToString) -> Result<IsolatedBroadcastChannelWrapper, Error> {
         IsolatedBroadcastChannelWrapper::new(self, name)
     }
 }
@@ -326,10 +323,7 @@ impl IsolatedBroadcastChannelWrapper {
     ///
     /// # Errors
     /// Will return an error if the channel cannot be subscribed to
-    pub fn new(
-        channel: &IsolatedBroadcastChannel,
-        name: impl ToString,
-    ) -> Result<Self, Error> {
+    pub fn new(channel: &IsolatedBroadcastChannel, name: impl ToString) -> Result<Self, Error> {
         let (cancel_tx, cancel_rx) = mpsc::unbounded_channel();
         let broadcast_rx = channel.sender.lock().subscribe();
         let receiver = tokio::sync::Mutex::new((broadcast_rx, cancel_rx));

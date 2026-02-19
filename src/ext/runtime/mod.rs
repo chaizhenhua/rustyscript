@@ -12,7 +12,7 @@ use deno_telemetry::OtelConfig;
 use sys_traits::impls::RealSys;
 
 use super::{
-    node::resolvers::RustyResolver, web::PermissionsContainer, web::to_permissions_options,
+    node::resolvers::RustyResolver, web::to_permissions_options, web::PermissionsContainer,
     ExtensionOptions, ExtensionTrait,
 };
 use crate::module_loader::{LoaderOptions, RustyLoader};
@@ -162,7 +162,7 @@ pub fn extensions(
     ]
 }
 
-use deno_runtime::inspector_server::MainInspectorSessionChannel;
+use deno_runtime::deno_inspector_server::MainInspectorSessionChannel;
 use deno_runtime::web_worker::{WebWorker, WebWorkerOptions, WebWorkerServiceOptions};
 use deno_runtime::{colors, BootstrapOptions, WorkerExecutionMode, WorkerLogLevel};
 #[derive(Clone)]
@@ -223,7 +223,6 @@ fn create_web_worker_callback(options: WebWorkerCallbackOptions) -> Arc<CreateWe
             broadcast_channel: options.broadcast_channel.clone(),
             shared_array_buffer_store: options.shared_array_buffer_store.clone(),
             compiled_wasm_module_store: None,
-            maybe_inspector_server: None,
             feature_checker: feature_checker.into(),
             npm_process_state_provider: Some(node_resolver.clone()),
             permissions: args.permissions,

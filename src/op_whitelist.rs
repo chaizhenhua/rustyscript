@@ -44,6 +44,7 @@ whitelist!(
         op_print,
         op_resources,
         op_wasm_streaming_feed,
+        op_wasm_streaming_stream_feed,
         op_wasm_streaming_set_url,
         op_void_sync,
         op_error_async,
@@ -165,6 +166,10 @@ whitelist!(
         op_set_format_exception_callback,
         op_event_loop_has_more_work,
         op_get_ext_import_meta_proto,
+        op_immediate_count,
+        op_immediate_ref_count,
+        op_immediate_set_has_outstanding,
+        op_immediate_has_ref_count,
     ],
     "deno_console" => [
         stubs = [],

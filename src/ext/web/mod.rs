@@ -10,9 +10,9 @@ pub use options::WebOptions;
 mod permissions;
 pub(crate) use permissions::PermissionsContainer;
 pub use permissions::{
-    AllowlistWebPermissions, CheckedPath, DefaultWebPermissions, PermissionCheckError,
-    PermissionDeniedError, PermissionsOptions, SystemsPermissionKind, WebPermissions,
-    to_permissions_options,
+    to_permissions_options, AllowlistWebPermissions, CheckedPath, DefaultWebPermissions,
+    PermissionCheckError, PermissionDeniedError, PermissionsOptions, SystemsPermissionKind,
+    WebPermissions,
 };
 
 /// Stub for a node op deno_net expects to find
